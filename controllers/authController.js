@@ -3,18 +3,26 @@ const db = require('../config/db');
 exports.loginUser = (req, res) => {
   const { email, password } = req.body;
 
-  const query = `SELECT 
-  u.id AS user_id,
-  u.name,
-  u.email,
-  u.role,
-  s.id AS student_id
-FROM users u
-LEFT JOIN students s
-ON u.id = s.user_id
-WHERE u.email = ? AND u.password = ?`;
+  // ================= USERS LOGIN =================
+  const query = `
+    SELECT 
+      u.id AS user_id,
+      u.name,
+      u.email,
+      u.role,
+      s.id AS student_id
+
+    FROM users u
+
+    LEFT JOIN students s
+    ON u.id = s.user_id
+
+    WHERE u.email = ?
+    AND u.password = ?
+  `;
 
   db.query(query, [email, password], (err, results) => {
+
     if (err) {
       return res.status(500).json({
         success: false,
@@ -22,49 +30,110 @@ WHERE u.email = ? AND u.password = ?`;
       });
     }
 
-    if (results.length === 0) {
-      return res.json({
-        success: false,
-        message: "Invalid credentials",
-      });
-    }
+    // ================= IF USER EXISTS =================
+    if (results.length > 0) {
 
-    const user = results[0];
+      const user = results[0];
 
-    if (user.role === "admin") {
-      const adminQuery = "SELECT * FROM admins WHERE email = ?";
+      // ================= ADMIN LOGIN =================
+      if (user.role === "admin") {
 
-      db.query(adminQuery, [user.email], (err, adminResults) => {
-        if (err) {
-          return res.status(500).json({
-            success: false,
-            message: err.message || err,
-          });
-        }
+        const adminQuery =
+          "SELECT * FROM admins WHERE email = ?";
 
-        const admin = adminResults[0];
+        db.query(
+          adminQuery,
+          [user.email],
+          (err, adminResults) => {
 
+            if (err) {
+              return res.status(500).json({
+                success: false,
+                message: err.message || err,
+              });
+            }
+
+            const admin = adminResults[0];
+
+            return res.json({
+              success: true,
+
+              user: {
+                user_id: user.user_id,
+                name:
+                  admin?.name ||
+                  user.name ||
+                  user.email,
+
+                email: user.email,
+                role: "admin",
+              },
+            });
+          }
+        );
+
+      } else {
+
+        // ================= STUDENT LOGIN =================
         return res.json({
           success: true,
+
           user: {
             user_id: user.user_id,
-            name: admin?.name || user.name || user.email,
+            student_id: user.student_id,
+            name: user.name,
             email: user.email,
-            role: "admin",
+            role: user.role,
           },
         });
-      });
+      }
+
     } else {
-      return res.json({
-  success: true,
-  user: {
-    user_id: user.user_id,
-    student_id: user.student_id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-  },
-});
+
+      // ================= DRIVER LOGIN =================
+      const driverQuery = `
+        SELECT *
+        FROM drivers
+        WHERE email = ?
+        AND password = ?
+      `;
+
+      db.query(
+        driverQuery,
+        [email, password],
+        (driverErr, driverResults) => {
+
+          if (driverErr) {
+            return res.status(500).json({
+              success: false,
+              message:
+                driverErr.message || driverErr,
+            });
+          }
+
+          if (driverResults.length > 0) {
+
+            const driver = driverResults[0];
+
+            return res.json({
+              success: true,
+
+              user: {
+                user_id: driver.id,
+                name: driver.name,
+                email: driver.email,
+                role: "driver",
+              },
+            });
+          }
+
+          // ================= INVALID =================
+          return res.json({
+            success: false,
+            message: "Invalid credentials",
+          });
+        }
+      );
     }
   });
 };

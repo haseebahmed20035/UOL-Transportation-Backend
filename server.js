@@ -1243,8 +1243,290 @@ app.get('/admin-dashboard-stats', (req, res) => {
     }
   );
 });
-// ================= START SERVER =================
 
+// ================= ADD DRIVER =================
+
+app.post('/add-driver', (req, res) => {
+  const {
+    name,
+    email,
+    father_name,
+    phone,
+    cnic,
+    joining_date,
+  } = req.body
+
+  if (
+    !name ||
+    !email ||
+    !father_name ||
+    !phone ||
+    !cnic ||
+    !joining_date
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please fill all required fields',
+    })
+  }
+
+  const tempPass =
+    Math.random().toString(36).slice(-8)
+
+  const checkQuery = `
+    SELECT * FROM drivers
+    WHERE cnic = ?
+    OR phone = ?
+    OR email = ?
+  `
+
+  db.query(
+    checkQuery,
+    [cnic, phone, email],
+    (checkErr, checkResult) => {
+
+      if (checkErr) {
+        return res.status(500).json({
+          success: false,
+          message: checkErr.message,
+        })
+      }
+
+      if (checkResult.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Driver already exists',
+        })
+      }
+
+      const insertQuery = `
+        INSERT INTO drivers (
+          name,
+          email,
+          father_name,
+          phone,
+          cnic,
+          joining_date,
+          password,
+          role,
+          is_available
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+
+      db.query(
+        insertQuery,
+        [
+          name,
+          email,
+          father_name,
+          phone,
+          cnic,
+          joining_date,
+          tempPass,
+          'driver',
+          1,
+        ],
+        (err, result) => {
+
+          if (err) {
+            return res.status(500).json({
+              success: false,
+              message: err.message,
+            })
+          }
+
+          // SEND EMAIL
+          transporter.sendMail(
+            {
+              from:
+                'haseeb.ahmed20035@gmail.com',
+
+              to: email,
+
+              subject:
+                'Driver Account Created 🚍',
+
+              html: `
+                <h2>🚍 UOL Transportation System</h2>
+
+                <p>Hello <b>${name}</b>,</p>
+
+                <p>
+                  You have been assigned as a driver in UOL Transportation System.
+                </p>
+
+                <h3>Login Credentials</h3>
+
+                <p><b>Email:</b> ${email}</p>
+
+                <p><b>Password:</b> ${tempPass}</p>
+
+                <p><b>Role:</b> driver</p>
+
+                <p>
+                  Please login using these credentials.
+                </p>
+              `,
+            },
+
+            mailErr => {
+
+              if (mailErr) {
+                console.log(
+                  'MAIL ERROR:',
+                  mailErr
+                )
+              } else {
+                console.log(
+                  'DRIVER MAIL SENT'
+                )
+              }
+            },
+          )
+
+          return res.status(200).json({
+            success: true,
+            message:
+              'Driver added successfully',
+            driver_id: result.insertId,
+          })
+        },
+      )
+    },
+  )
+})
+
+// ================= DELETE DRIVER =================
+
+app.delete('/delete-driver/:id', (req, res) => {
+
+  const driverId = req.params.id;
+
+  // REMOVE DRIVER FROM BUSES
+  const updateBusQuery = `
+    UPDATE buses
+    SET
+      driver_id = NULL,
+      driver_name = NULL
+    WHERE driver_id = ?
+  `;
+
+  db.query(
+    updateBusQuery,
+    [driverId],
+    (updateErr) => {
+
+      if (updateErr) {
+        return res.status(500).json({
+          success: false,
+          message: updateErr.message,
+        });
+      }
+
+      // DELETE DRIVER
+      db.query(
+        'DELETE FROM drivers WHERE id = ?',
+        [driverId],
+        (deleteErr) => {
+
+          if (deleteErr) {
+            return res.status(500).json({
+              success: false,
+              message: deleteErr.message,
+            });
+          }
+
+          res.json({
+            success: true,
+            message:
+              'Driver deleted successfully',
+          });
+        }
+      );
+    }
+  );
+});
+// ================= ALL DRIVERS =================
+
+app.get('/all-drivers', (req, res) => {
+
+  const sql = `
+    SELECT
+      d.id,
+      d.name,
+      d.email,
+      d.father_name,
+      d.phone,
+      d.cnic,
+      d.joining_date,
+      d.is_available,
+
+      b.bus_number,
+      b.route_name
+
+    FROM drivers d
+
+    LEFT JOIN buses b
+    ON d.id = b.driver_id
+
+    ORDER BY d.id DESC
+  `;
+
+  db.query(sql, (err, result) => {
+
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      });
+    }
+
+    res.json(result);
+  });
+});
+
+// ================= DRIVER PERSONAL INFO =================
+
+app.get('/driver/:id', (req, res) => {
+
+  const driverId = req.params.id;
+
+  const sql = `
+    SELECT
+      id,
+      name,
+      email,
+      father_name,
+      phone,
+      cnic,
+      joining_date,
+      is_available
+    FROM drivers
+    WHERE id = ?
+  `;
+
+  db.query(sql, [driverId], (err, result) => {
+
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      });
+    }
+
+    if (result.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Driver not found',
+      });
+    }
+
+    res.json(result[0]);
+  });
+});
+// ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
 })
