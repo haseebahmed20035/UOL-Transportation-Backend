@@ -1526,6 +1526,439 @@ app.get('/driver/:id', (req, res) => {
     res.json(result[0]);
   });
 });
+
+app.get('/driver/my-route/:driverId', (req, res) => {
+  const { driverId } = req.params;
+
+  const query = `
+    SELECT 
+      d.id AS driver_id,
+      d.name AS driver_name,
+
+      b.id AS bus_id,
+      b.bus_number,
+      b.capacity,
+      b.status AS bus_status,
+
+      r.id AS route_id,
+      r.route_name,
+      r.source,
+      r.destination,
+      r.estimated_time,
+
+      rs.id AS stop_id,
+      rs.stop_name,
+      rs.latitude,
+      rs.longitude,
+      rs.stop_order
+
+    FROM drivers d
+    LEFT JOIN buses b ON d.id = b.driver_id
+    LEFT JOIN routes r ON b.route_id = r.id
+    LEFT JOIN route_stops rs ON r.id = rs.route_id
+    WHERE d.id = ?
+    ORDER BY rs.stop_order ASC
+  `;
+
+  db.query(query, [driverId], (err, results) => {
+    if (err) {
+      console.log('Driver my route error:', err);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch driver route',
+      });
+    }
+
+    if (!results.length || !results[0].route_id) {
+      return res.status(404).json({
+        success: false,
+        message: 'No route assigned to this driver',
+      });
+    }
+
+    const first = results[0];
+
+    const routeData = {
+      driver: {
+        id: first.driver_id,
+        name: first.driver_name,
+      },
+      bus: {
+        id: first.bus_id,
+        bus_number: first.bus_number,
+        capacity: first.capacity,
+        status: first.bus_status,
+      },
+      route: {
+        id: first.route_id,
+        route_name: first.route_name,
+        source: first.source,
+        destination: first.destination,
+        estimated_time: first.estimated_time,
+        stops: results
+          .filter(row => row.stop_id)
+          .map(row => ({
+            id: row.stop_id,
+            stop_name: row.stop_name,
+            latitude: row.latitude,
+            longitude: row.longitude,
+            stop_order: row.stop_order,
+          })),
+      },
+    };
+
+    res.json({
+      success: true,
+      data: routeData,
+    });
+  });
+});
+
+// ================= TRIP CONTROL / LIVE TRACKING =================
+
+app.post('/start-trip', (req, res) => {
+  const {
+    driver_id,
+    bus_id,
+    route_id,
+    latitude,
+    longitude,
+  } = req.body
+
+  if (
+  !driver_id ||
+  !bus_id ||
+  !route_id ||
+  latitude === undefined ||
+  longitude === undefined
+) {
+    return res.status(400).json({
+      success: false,
+      message: 'Required trip data missing',
+    })
+  }
+
+  const sql = `
+    INSERT INTO bus_live_locations
+    (bus_id, driver_id, route_id, latitude, longitude, status)
+    VALUES (?, ?, ?, ?, ?, 'running')
+  `
+
+  db.query(
+    sql,
+    [bus_id, driver_id, route_id, latitude, longitude],
+    err => {
+      if (err) {
+        console.log('START TRIP ERROR:', err)
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        })
+      }
+
+      db.query(
+        `UPDATE buses SET status = 'running' WHERE id = ?`,
+        [bus_id]
+      )
+
+      res.json({
+        success: true,
+        message: 'Trip started successfully',
+      })
+    }
+  )
+})
+
+app.post('/update-bus-location', (req, res) => {
+  const {
+    driver_id,
+    bus_id,
+    route_id,
+    latitude,
+    longitude,
+  } = req.body
+
+  if (!driver_id || !bus_id || !route_id || !latitude || !longitude) {
+    return res.status(400).json({
+      success: false,
+      message: 'Location data missing',
+    })
+  }
+
+  const sql = `
+    INSERT INTO bus_live_locations
+    (bus_id, driver_id, route_id, latitude, longitude, status)
+    VALUES (?, ?, ?, ?, ?, 'running')
+  `
+
+  db.query(
+    sql,
+    [bus_id, driver_id, route_id, latitude, longitude],
+    err => {
+      if (err) {
+        console.log('UPDATE BUS LOCATION ERROR:', err)
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        })
+      }
+
+      checkBusArrivalAndNotifyStudents(bus_id, route_id, latitude, longitude)
+
+      res.json({
+        success: true,
+        message: 'Location updated',
+      })
+    }
+  )
+})
+
+app.post('/end-trip', (req, res) => {
+  const { driver_id, bus_id, route_id } = req.body
+
+  if (!driver_id || !bus_id || !route_id) {
+    return res.status(400).json({
+      success: false,
+      message: 'Trip data missing',
+    })
+  }
+
+  db.query(
+    `
+    INSERT INTO bus_live_locations
+    (bus_id, driver_id, route_id, latitude, longitude, status)
+    SELECT ?, ?, ?, latitude, longitude, 'ended'
+    FROM bus_live_locations
+    WHERE bus_id = ?
+    ORDER BY id DESC
+    LIMIT 1
+    `,
+    [bus_id, driver_id, route_id, bus_id],
+    err => {
+      if (err) {
+        console.log('END TRIP ERROR:', err)
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        })
+      }
+
+      db.query(
+        `UPDATE buses SET status = 'active' WHERE id = ?`,
+        [bus_id]
+      )
+
+      res.json({
+        success: true,
+        message: 'Trip ended successfully',
+      })
+    }
+  )
+})
+
+// Admin can view all running buses
+app.get('/admin/running-buses', (req, res) => {
+  const sql = `
+    SELECT 
+      bll.bus_id,
+      bll.driver_id,
+      bll.route_id,
+      bll.latitude,
+      bll.longitude,
+      bll.status,
+      bll.updated_at,
+
+      b.bus_number,
+      b.driver_name,
+      r.route_name,
+      r.source,
+      r.destination
+
+    FROM bus_live_locations bll
+
+    JOIN (
+      SELECT bus_id, MAX(id) AS latest_id
+      FROM bus_live_locations
+      GROUP BY bus_id
+    ) latest
+    ON bll.id = latest.latest_id
+
+    JOIN buses b
+    ON bll.bus_id = b.id
+
+    JOIN routes r
+    ON bll.route_id = r.id
+
+    WHERE bll.status = 'running'
+    ORDER BY bll.updated_at DESC
+  `
+
+  db.query(sql, (err, result) => {
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      buses: result,
+    })
+  })
+})
+
+// Student can view only his assigned approved bus
+app.get('/student/live-bus/:studentId', (req, res) => {
+  const { studentId } = req.params
+
+  const sql = `
+    SELECT 
+      bll.bus_id,
+      bll.driver_id,
+      bll.route_id,
+      bll.latitude,
+      bll.longitude,
+      bll.status,
+      bll.updated_at,
+
+      b.bus_number,
+      b.driver_name,
+      r.route_name,
+      r.source,
+      r.destination,
+      r.estimated_time
+
+    FROM transport_requests tr
+
+    JOIN bus_live_locations bll
+    ON tr.assigned_bus_id = bll.bus_id
+
+    JOIN (
+      SELECT bus_id, MAX(id) AS latest_id
+      FROM bus_live_locations
+      GROUP BY bus_id
+    ) latest
+    ON bll.id = latest.latest_id
+
+    JOIN buses b
+    ON bll.bus_id = b.id
+
+    JOIN routes r
+    ON bll.route_id = r.id
+
+    WHERE tr.student_id = ?
+    AND tr.status = 'approved'
+    AND bll.status = 'running'
+
+    ORDER BY tr.id DESC
+    LIMIT 1
+  `
+
+  db.query(sql, [studentId], (err, result) => {
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    if (result.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No running bus found',
+        bus: null,
+      })
+    }
+
+    res.json({
+      success: true,
+      bus: result[0],
+    })
+  })
+})
+
+const getDistanceInMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2)
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+  return R * c
+}
+
+const checkBusArrivalAndNotifyStudents = (
+  busId,
+  routeId,
+  busLat,
+  busLng
+) => {
+  const sql = `
+    SELECT 
+      tr.student_id,
+      u.fcm_token,
+      u.name,
+      rs.stop_name,
+      rs.latitude,
+      rs.longitude
+
+    FROM transport_requests tr
+
+    JOIN students s
+    ON tr.student_id = s.id
+
+    JOIN users u
+    ON s.user_id = u.id
+
+    JOIN route_stops rs
+    ON tr.route_id = rs.route_id
+
+    WHERE tr.assigned_bus_id = ?
+    AND tr.route_id = ?
+    AND tr.status = 'approved'
+    AND u.fcm_token IS NOT NULL
+  `
+
+  db.query(sql, [busId, routeId], async (err, students) => {
+    if (err) {
+      console.log('ARRIVAL CHECK ERROR:', err)
+      return
+    }
+
+    for (const student of students) {
+      const distance = getDistanceInMeters(
+        Number(busLat),
+        Number(busLng),
+        Number(student.latitude),
+        Number(student.longitude)
+      )
+
+      if (distance <= 80) {
+        try {
+          await admin.messaging().send({
+            token: student.fcm_token,
+            notification: {
+              title: 'Bus Arrived',
+              body: `Your bus has arrived at ${student.stop_name}. Be hurry.`,
+            },
+          })
+
+          console.log('Arrival notification sent to:', student.name)
+        } catch (e) {
+          console.log('ARRIVAL FCM ERROR:', e)
+        }
+      }
+    }
+  })
+}
 // ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
