@@ -527,6 +527,7 @@ app.post('/add-student', (req, res) => {
                   <p>Email: ${email}</p>
                   <p>Password: ${tempPass}</p>
                   <p>Registration No: ${reg_no}</p>
+                  <p><b>Role:</b> student</p>
                   <p>You can change password from "My Personal Info"</p>
                 `
               },
@@ -1065,31 +1066,73 @@ app.get('/all-complaints', (req, res) => {
 });
 
 app.post('/save-push-token', (req, res) => {
-  const { user_id, token } = req.body;
+  const {
+    user_id,
+    driver_id,
+    role,
+    token,
+  } = req.body
+
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      message: 'FCM token is required',
+    })
+  }
+
+  if (role === 'driver') {
+    const finalDriverId = driver_id || user_id
+
+    if (!finalDriverId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Driver id is required',
+      })
+    }
+
+    const query = `
+      UPDATE drivers
+      SET fcm_token = ?
+      WHERE id = ?
+    `
+
+    db.query(query, [token, finalDriverId], err => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        })
+      }
+
+      return res.json({
+        success: true,
+        message: 'Driver push token saved',
+      })
+    })
+
+    return
+  }
 
   const query = `
     UPDATE users
     SET fcm_token = ?
     WHERE id = ?
-  `;
+  `
 
-  db.query(
-    query,
-    [token, user_id],
-    (err) => {
-      if (err) {
-        return res.status(500).json({
-          success: false,
-          message: err.message,
-        });
-      }
-
-      res.json({
-        success: true,
-      });
+  db.query(query, [token, user_id], err => {
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
     }
-  );
-});
+
+    res.json({
+      success: true,
+      message: 'User push token saved',
+    })
+  })
+})
 
 app.post('/respond-complaint', async (req, res) => {
 
@@ -1368,6 +1411,8 @@ app.post('/add-driver', (req, res) => {
                 <p>
                   Please login using these credentials.
                 </p>
+                <p>You can change password from "My Personal Info"</p>
+
               `,
             },
 
@@ -1959,6 +2004,342 @@ const checkBusArrivalAndNotifyStudents = (
     }
   })
 }
+
+// ================= ADMIN SEND NOTIFICATION =================
+
+app.post('/admin/send-notification', async (req, res) => {
+  const {
+    title,
+    message,
+    target_role,
+    created_by,
+  } = req.body
+
+  if (!title || !message || !target_role) {
+    return res.status(400).json({
+      success: false,
+      message: 'Title, message and target role are required',
+    })
+  }
+
+  const allowedRoles = ['all', 'student', 'driver']
+
+  if (!allowedRoles.includes(target_role)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid target role',
+    })
+  }
+
+  const insertNotificationQuery = `
+    INSERT INTO admin_notifications
+    (title, message, target_role, created_by)
+    VALUES (?, ?, ?, ?)
+  `
+
+  db.query(
+    insertNotificationQuery,
+    [title, message, target_role, created_by || null],
+    (err, notificationResult) => {
+      if (err) {
+        console.log('ADMIN NOTIFICATION INSERT ERROR:', err)
+
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        })
+      }
+
+      const notificationId = notificationResult.insertId
+      const receivers = []
+
+      const fetchStudents = callback => {
+        if (target_role !== 'all' && target_role !== 'student') {
+          callback()
+          return
+        }
+
+        const studentQuery = `
+          SELECT
+            CAST(id AS CHAR) AS notification_user_id,
+            name,
+            email,
+            role,
+            fcm_token
+          FROM users
+          WHERE role = 'student'
+        `
+
+        db.query(studentQuery, (studentErr, students) => {
+          if (studentErr) {
+            callback(studentErr)
+            return
+          }
+
+          receivers.push(...students)
+          callback()
+        })
+      }
+
+      const fetchDrivers = callback => {
+        if (target_role !== 'all' && target_role !== 'driver') {
+          callback()
+          return
+        }
+
+        const driverQuery = `
+          SELECT
+            CONCAT('driver_', id) AS notification_user_id,
+            name,
+            email,
+            'driver' AS role,
+            fcm_token
+          FROM drivers
+        `
+
+        db.query(driverQuery, (driverErr, drivers) => {
+          if (driverErr) {
+            callback(driverErr)
+            return
+          }
+
+          receivers.push(...drivers)
+          callback()
+        })
+      }
+
+      fetchStudents(studentErr => {
+        if (studentErr) {
+          return res.status(500).json({
+            success: false,
+            message: studentErr.message,
+          })
+        }
+
+        fetchDrivers(driverErr => {
+          if (driverErr) {
+            return res.status(500).json({
+              success: false,
+              message: driverErr.message,
+            })
+          }
+
+          if (receivers.length === 0) {
+            return res.json({
+              success: true,
+              message: 'Notification saved, but no users found for selected role',
+              notification_id: notificationId,
+            })
+          }
+
+          const insertValues = receivers.map(user => [
+            notificationId,
+            user.notification_user_id,
+            0,
+          ])
+
+          const insertUserNotificationQuery = `
+            INSERT IGNORE INTO user_notifications
+            (notification_id, user_id, is_read)
+            VALUES ?
+          `
+
+          db.query(
+            insertUserNotificationQuery,
+            [insertValues],
+            async userNotificationErr => {
+              if (userNotificationErr) {
+                console.log(
+                  'USER NOTIFICATION INSERT ERROR:',
+                  userNotificationErr
+                )
+
+                return res.status(500).json({
+                  success: false,
+                  message: userNotificationErr.message,
+                })
+              }
+
+              const usersWithToken = receivers.filter(user => user.fcm_token)
+
+              let sentCount = 0
+              let failedCount = 0
+
+              for (const user of usersWithToken) {
+                try {
+                  await admin.messaging().send({
+                    token: user.fcm_token,
+                    notification: {
+                      title,
+                      body: message,
+                    },
+                    data: {
+                      notification_id: String(notificationId),
+                      target_role: target_role,
+                      type: 'admin_notification',
+                    },
+                  })
+
+                  sentCount++
+                } catch (fcmError) {
+                  failedCount++
+
+                  console.log(
+                    'ADMIN NOTIFICATION FCM ERROR:',
+                    user.email || user.name,
+                    fcmError
+                  )
+                }
+              }
+
+              return res.json({
+                success: true,
+                message: 'Notification sent successfully',
+                notification_id: notificationId,
+                total_users: receivers.length,
+                push_sent: sentCount,
+                push_failed: failedCount,
+              })
+            }
+          )
+        })
+      })
+    }
+  )
+})
+
+
+// ================= GET USER NOTIFICATIONS =================
+
+app.get('/user-notifications/:userId', (req, res) => {
+  const { userId } = req.params
+
+  const query = `
+    SELECT
+      un.id AS user_notification_id,
+      un.is_read,
+      n.id AS notification_id,
+      n.title,
+      n.message,
+      n.target_role,
+      n.created_at
+    FROM user_notifications un
+
+    JOIN admin_notifications n
+    ON un.notification_id = n.id
+
+    WHERE un.user_id = ?
+
+    ORDER BY n.created_at DESC
+  `
+
+  db.query(query, [userId], (err, result) => {
+    if (err) {
+      console.log('GET USER NOTIFICATIONS ERROR:', err)
+
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      notifications: result,
+    })
+  })
+})
+
+
+// ================= MARK NOTIFICATION READ =================
+
+app.put('/user-notifications/read/:id', (req, res) => {
+  const { id } = req.params
+
+  const query = `
+    UPDATE user_notifications
+    SET is_read = 1
+    WHERE id = ?
+  `
+
+  db.query(query, [id], err => {
+    if (err) {
+      console.log('MARK NOTIFICATION READ ERROR:', err)
+
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      message: 'Notification marked as read',
+    })
+  })
+})
+
+
+// ================= UNREAD NOTIFICATION COUNT =================
+
+app.get('/user-notifications/unread-count/:userId', (req, res) => {
+  const { userId } = req.params
+
+  const query = `
+    SELECT COUNT(*) AS unread_count
+    FROM user_notifications
+    WHERE user_id = ?
+    AND is_read = 0
+  `
+
+  db.query(query, [userId], (err, result) => {
+    if (err) {
+      console.log('UNREAD NOTIFICATION COUNT ERROR:', err)
+
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      unread_count: result[0].unread_count,
+    })
+  })
+})
+
+app.delete('/clear-user-notifications/:userId', (req, res) => {
+  const { userId } = req.params
+
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      message: 'User id is required',
+    })
+  }
+
+  const query = `
+    DELETE FROM user_notifications
+    WHERE user_id = ?
+  `
+
+  db.query(query, [userId], (err, result) => {
+    if (err) {
+      console.log('Clear notifications error:', err)
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to clear notifications',
+      })
+    }
+
+    return res.json({
+      success: true,
+      message: 'Notifications cleared successfully',
+      deletedCount: result.affectedRows,
+    })
+  })
+})
 // ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
