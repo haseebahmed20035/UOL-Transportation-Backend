@@ -1,5 +1,5 @@
 const db = require('./config/db')
-const admin = require('./firebase');
+// const admin = require('./firebase');
 const express = require('express')
 const cors = require('cors')
 const transporter = require('./config/mail')
@@ -1276,19 +1276,19 @@ app.post('/respond-complaint', async (req, res) => {
 
               try {
                 console.log('🔥 PUSH TOKEN:', pushToken);
-                await admin.messaging().send({
+                // await admin.messaging().send({
 
-                  token: pushToken,
+                //   token: pushToken,
 
-                  notification: {
-                    title:
-                      'Complaint Update',
+                //   notification: {
+                //     title:
+                //       'Complaint Update',
 
-                    body:
-                      'Your complaint is registered. Admin will resolve your issue soon.',
-                  },
+                //     body:
+                //       'Your complaint is registered. Admin will resolve your issue soon.',
+                //   },
 
-                });
+                // });
 
                 console.log(
                   '🔥 Notification sent'
@@ -2112,13 +2112,13 @@ const checkBusArrivalAndNotifyStudents = (
 
       if (distance <= 80) {
         try {
-          await admin.messaging().send({
-            token: student.fcm_token,
-            notification: {
-              title: 'Bus Arrived',
-              body: `Your bus has arrived at ${student.stop_name}. Be hurry.`,
-            },
-          })
+          // await admin.messaging().send({
+          //   token: student.fcm_token,
+          //   notification: {
+          //     title: 'Bus Arrived',
+          //     body: `Your bus has arrived at ${student.stop_name}. Be hurry.`,
+          //   },
+          // })
 
           console.log('Arrival notification sent to:', student.name)
         } catch (e) {
@@ -2291,18 +2291,18 @@ app.post('/admin/send-notification', async (req, res) => {
 
               for (const user of usersWithToken) {
                 try {
-                  await admin.messaging().send({
-                    token: user.fcm_token,
-                    notification: {
-                      title,
-                      body: message,
-                    },
-                    data: {
-                      notification_id: String(notificationId),
-                      target_role: target_role,
-                      type: 'admin_notification',
-                    },
-                  })
+                  // await admin.messaging().send({
+                  //   token: user.fcm_token,
+                  //   notification: {
+                  //     title,
+                  //     body: message,
+                  //   },
+                  //   data: {
+                  //     notification_id: String(notificationId),
+                  //     target_role: target_role,
+                  //     type: 'admin_notification',
+                  //   },
+                  // })
 
                   sentCount++
                 } catch (fcmError) {
