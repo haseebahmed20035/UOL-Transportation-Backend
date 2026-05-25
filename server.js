@@ -4,6 +4,7 @@ const express = require('express')
 const cors = require('cors')
 const transporter = require('./config/mail')
 const app = express()
+require("dotenv").config();
 
 app.use(cors())
 app.use(express.json())
@@ -11,7 +12,7 @@ app.use(express.json())
 // auth routes
 app.use('/api/auth', require('./routes/authRoutes'))
 
-const PORT = 5000
+const PORT = process.env.PORT || 5000;
 
 // ================= ROUTES =================
 
@@ -574,28 +575,110 @@ app.get("/student/:userId", (req, res) => {
 });
 
 // ==============================OTP============================
+
 const otpStore = {}; // temp store
 
 app.post("/send-otp", (req, res) => {
   const { email } = req.body;
 
-  const otp = Math.floor(100000 + Math.random() * 900000);
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: "Email is required",
+    });
+  }
 
-  otpStore[email] = otp;
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-  transporter.sendMail({
-    from: "haseeb.ahmed20035@gmail.com",
-    to: email,
-    subject: "OTP Verification",
-    html: `<h2>Your OTP for change password is: ${otp}</h2>`
-  }, (err) => {
-    if (err) {
-      console.log(err);
-      return res.status(500).json({ message: "Email failed" });
-    }
+  // Store OTP with expiry time
+  otpStore[email] = {
+    otp,
+    expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+  };
 
-    res.json({ message: "OTP sent successfully" });
+  // Send response immediately to frontend
+  res.json({
+    success: true,
+    message: "OTP is being sent to your email",
   });
+
+  // Send email in background
+  transporter.sendMail(
+    {
+      from: "haseeb.ahmed20035@gmail.com",
+      to: email,
+      subject: "OTP Verification",
+      html: `
+        <h2>UOL Transportation App</h2>
+        <p>Your OTP for changing password is:</p>
+        <h1>${otp}</h1>
+        <p>This OTP will expire in 5 minutes.</p>
+      `,
+    },
+    err => {
+      if (err) {
+        console.log("OTP MAIL ERROR:", err);
+      } else {
+        console.log("OTP MAIL SENT SUCCESSFULLY TO:", email);
+      }
+    }
+  );
+});
+
+app.post("/change-password", async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: "Email, OTP and new password are required",
+    });
+  }
+
+  const savedOtpData = otpStore[email];
+
+  if (!savedOtpData) {
+    return res.status(400).json({
+      success: false,
+      message: "OTP not found. Please request a new OTP.",
+    });
+  }
+
+  if (Date.now() > savedOtpData.expiresAt) {
+    delete otpStore[email];
+
+    return res.status(400).json({
+      success: false,
+      message: "OTP expired. Please request a new OTP.",
+    });
+  }
+
+  if (savedOtpData.otp !== otp.toString()) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid OTP",
+    });
+  }
+
+  db.query(
+    "UPDATE users SET password = ? WHERE email = ?",
+    [newPassword, email],
+    err => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: "DB error",
+        });
+      }
+
+      delete otpStore[email];
+
+      res.json({
+        success: true,
+        message: "Password updated successfully",
+      });
+    }
+  );
 });
 
 
@@ -1723,12 +1806,12 @@ app.post('/update-bus-location', (req, res) => {
     longitude,
   } = req.body
 
-  if (!driver_id || !bus_id || !route_id || !latitude || !longitude) {
-    return res.status(400).json({
-      success: false,
-      message: 'Location data missing',
-    })
-  }
+  if (!driver_id ||!bus_id || !route_id || latitude === undefined || longitude === undefined || latitude === null ||longitude === null) {
+  return res.status(400).json({
+    success: false,
+    message: 'Location data missing',
+  })
+}
 
   const sql = `
     INSERT INTO bus_live_locations
@@ -1859,6 +1942,11 @@ app.get('/student/live-bus/:studentId', (req, res) => {
 
   const sql = `
     SELECT 
+      tr.id AS request_id,
+      tr.student_id,
+      tr.route_id AS approved_route_id,
+      tr.assigned_bus_id,
+
       bll.bus_id,
       bll.driver_id,
       bll.route_id,
@@ -1877,24 +1965,25 @@ app.get('/student/live-bus/:studentId', (req, res) => {
     FROM transport_requests tr
 
     JOIN bus_live_locations bll
-    ON tr.assigned_bus_id = bll.bus_id
+      ON tr.assigned_bus_id = bll.bus_id
 
     JOIN (
       SELECT bus_id, MAX(id) AS latest_id
       FROM bus_live_locations
       GROUP BY bus_id
     ) latest
-    ON bll.id = latest.latest_id
+      ON bll.id = latest.latest_id
 
     JOIN buses b
-    ON bll.bus_id = b.id
+      ON bll.bus_id = b.id
 
     JOIN routes r
-    ON bll.route_id = r.id
+      ON bll.route_id = r.id
 
     WHERE tr.student_id = ?
-    AND tr.status = 'approved'
-    AND bll.status = 'running'
+      AND tr.status = 'approved'
+      AND tr.assigned_bus_id IS NOT NULL
+      AND bll.status = 'running'
 
     ORDER BY tr.id DESC
     LIMIT 1
@@ -1902,6 +1991,7 @@ app.get('/student/live-bus/:studentId', (req, res) => {
 
   db.query(sql, [studentId], (err, result) => {
     if (err) {
+      console.log('STUDENT LIVE BUS ERROR:', err)
       return res.status(500).json({
         success: false,
         message: err.message,
@@ -1913,12 +2003,46 @@ app.get('/student/live-bus/:studentId', (req, res) => {
         success: false,
         message: 'No running bus found',
         bus: null,
+        studentStop: null,
+        routeStops: [],
       })
     }
 
-    res.json({
-      success: true,
-      bus: result[0],
+    const bus = result[0]
+
+    const stopsSql = `
+      SELECT 
+        id,
+        stop_name,
+        latitude,
+        longitude,
+        stop_order
+      FROM route_stops
+      WHERE route_id = ?
+      ORDER BY stop_order ASC
+    `
+
+    db.query(stopsSql, [bus.route_id], (stopErr, stops) => {
+      if (stopErr) {
+        console.log('LIVE BUS STOPS ERROR:', stopErr)
+        return res.status(500).json({
+          success: false,
+          message: stopErr.message,
+        })
+      }
+
+      const formattedStops = Array.isArray(stops) ? stops : []
+
+      // For now using first stop as student stop.
+      // Later you can store student's selected stop in transport_requests.
+      const studentStop = formattedStops[0] || null
+
+      return res.json({
+        success: true,
+        bus,
+        studentStop,
+        routeStops: formattedStops,
+      })
     })
   })
 })
