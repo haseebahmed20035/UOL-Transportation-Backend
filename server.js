@@ -2464,6 +2464,58 @@ app.delete('/clear-user-notifications/:userId', (req, res) => {
     })
   })
 })
+
+app.post('/admin/fix-loading-stops', (req, res) => {
+  const sql = `
+    SELECT id, stop_name, latitude, longitude
+    FROM route_stops
+    WHERE LOWER(stop_name) LIKE '%loading%'
+       OR stop_name IS NULL
+       OR stop_name = ''
+  `
+
+  db.query(sql, async (err, stops) => {
+    if (err) {
+      return res.status(500).json({ message: err.message })
+    }
+
+    try {
+      let fixedCount = 0
+
+      for (let i = 0; i < stops.length; i++) {
+        const stop = stops[i]
+
+        const newName = await getAddressFromLatLng(
+          Number(stop.latitude),
+          Number(stop.longitude),
+          `Stop ${i + 1}`
+        )
+
+        await new Promise((resolve, reject) => {
+          db.query(
+            'UPDATE route_stops SET stop_name = ? WHERE id = ?',
+            [newName, stop.id],
+            err => {
+              if (err) reject(err)
+              else resolve()
+            }
+          )
+        })
+
+        fixedCount++
+      }
+
+      res.json({
+        success: true,
+        message: 'Loading stops fixed successfully',
+        fixedCount,
+      })
+    } catch (error) {
+      console.log('FIX LOADING STOPS ERROR:', error)
+      res.status(500).json({ message: 'Failed to fix stops' })
+    }
+  })
+})
 // ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
