@@ -3,6 +3,7 @@ const db = require('./config/db')
 const express = require('express')
 const cors = require('cors')
 const transporter = require('./config/mail')
+const cron = require('node-cron')
 const app = express()
 require("dotenv").config();
 
@@ -2465,6 +2466,7 @@ app.delete('/clear-user-notifications/:userId', (req, res) => {
     })
   })
 })
+
 
 // ================= START SERVER =================
 app.listen(PORT, () => {
