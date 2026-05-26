@@ -78,24 +78,25 @@ app.post('/add-route', (req, res) => {
       const routeId = result.insertId
 
       const stopQueries = stops.map((stop, index) => {
-        return new Promise((resolve, reject) => {
-          db.query(
-            'INSERT INTO route_stops (route_id, stop_name, latitude, longitude) VALUES (?, ?, ?, ?)',
-            [
-              routeId,
-              stop.stop_name,
-              Number(stop.latitude),
-              Number(stop.longitude)
-            ],
-            err => {
-              if (err) {
-                console.log('🔥 STOP INSERT ERROR:', err)
-                reject(err)
-              } else resolve()
-            }
-          )
-        })
-      })
+  return new Promise((resolve, reject) => {
+    db.query(
+      'INSERT INTO route_stops (route_id, stop_name, latitude, longitude, stop_order) VALUES (?, ?, ?, ?, ?)',
+      [
+        routeId,
+        stop.stop_name,
+        Number(stop.latitude),
+        Number(stop.longitude),
+        index + 1   // 🔥 Save the order based on array position
+      ],
+      err => {
+        if (err) {
+          console.log('🔥 STOP INSERT ERROR:', err)
+          reject(err)
+        } else resolve()
+      }
+    )
+  })
+})
 
       Promise.all(stopQueries)
         .then(() => res.json({ message: 'Route added successfully' }))
