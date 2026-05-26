@@ -683,27 +683,6 @@ app.post("/change-password", async (req, res) => {
   );
 });
 
-
-app.post("/change-password", async (req, res) => {
-  const { email, otp, newPassword } = req.body;
-
-  if (otpStore[email] != otp) {
-    return res.status(400).json({ message: "Invalid OTP" });
-  }
-
-  db.query(
-    "UPDATE users SET password = ? WHERE email = ?",
-    [newPassword, email],
-    (err) => {
-      if (err) return res.status(500).json({ message: "DB error" });
-
-      delete otpStore[email];
-
-      res.json({ message: "Password updated successfully" });
-    }
-  );
-});
-
 // ====================================View All Students========================
 app.get("/all-students", (req, res) => {
   const sql = `
@@ -2467,6 +2446,714 @@ app.delete('/clear-user-notifications/:userId', (req, res) => {
   })
 })
 
+// ================= FEE VOUCHER SYSTEM =================
+
+const APP_PUBLIC_URL =
+  process.env.APP_PUBLIC_URL || `http://localhost:${process.env.PORT || 5000}`
+
+const sendMailSafe = ({ to, subject, html }) => {
+  return new Promise(resolve => {
+    if (!to) return resolve(false)
+
+    transporter.sendMail(
+      {
+        from: 'haseeb.ahmed20035@gmail.com',
+        to,
+        subject,
+        html,
+      },
+      err => {
+        if (err) {
+          console.log('FEE MAIL ERROR:', err.message)
+          return resolve(false)
+        }
+
+        console.log('FEE MAIL SENT TO:', to)
+        resolve(true)
+      }
+    )
+  })
+}
+
+const getFeeVoucherEmailHtml = ({
+  studentName,
+  title,
+  amount,
+  billingCycle,
+  dueDate,
+  message,
+}) => {
+  return `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+      <h2>🚍 UOL Transportation Fee Voucher</h2>
+
+      <p>Hello <b>${studentName || 'Student'}</b>,</p>
+
+      <p>Your new fee voucher has been issued.</p>
+
+      <table style="border-collapse: collapse; width: 100%; max-width: 520px;">
+        <tr>
+          <td style="border:1px solid #ddd;padding:8px;">Title</td>
+          <td style="border:1px solid #ddd;padding:8px;"><b>${title}</b></td>
+        </tr>
+
+        <tr>
+          <td style="border:1px solid #ddd;padding:8px;">Amount</td>
+          <td style="border:1px solid #ddd;padding:8px;"><b>PKR ${amount}</b></td>
+        </tr>
+
+        <tr>
+          <td style="border:1px solid #ddd;padding:8px;">Billing Cycle</td>
+          <td style="border:1px solid #ddd;padding:8px;">${billingCycle}</td>
+        </tr>
+
+        <tr>
+          <td style="border:1px solid #ddd;padding:8px;">Due Date</td>
+          <td style="border:1px solid #ddd;padding:8px;">${dueDate}</td>
+        </tr>
+      </table>
+
+      ${message ? `<p>${message}</p>` : ''}
+
+      <p>Please open the UOL Transportation App and pay your fee before the due date.</p>
+    </div>
+  `
+}
+
+const getFeeReminderEmailHtml = ({
+  studentName,
+  title,
+  amount,
+  dueDate,
+}) => {
+  return `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+      <h2>🚨 Fee Payment Reminder</h2>
+
+      <p>Hello <b>${studentName || 'Student'}</b>,</p>
+
+      <p>Your fee voucher is still unpaid.</p>
+
+      <p><b>Voucher:</b> ${title}</p>
+      <p><b>Amount:</b> PKR ${amount}</p>
+      <p><b>Due Date:</b> ${dueDate}</p>
+
+      <p>Please open the UOL Transportation App and complete your payment.</p>
+    </div>
+  `
+}
+
+// Admin: get students for fee screen
+app.get('/fee/students', (req, res) => {
+  const sql = `
+    SELECT
+      s.id AS student_id,
+      u.id AS user_id,
+      u.name,
+      u.email,
+      s.reg_no,
+      s.department,
+      s.status
+    FROM students s
+    JOIN users u
+      ON s.user_id = u.id
+    WHERE s.status = 'active'
+    ORDER BY s.id DESC
+  `
+
+  db.query(sql, (err, result) => {
+    if (err) {
+      console.log('FEE STUDENTS ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      students: result,
+    })
+  })
+})
+
+// Admin: send fee voucher to all or selected students
+app.post('/fee/send-vouchers', (req, res) => {
+  const {
+    title,
+    amount,
+    billing_cycle,
+    due_date,
+    message,
+    send_to_all,
+    student_ids,
+    created_by,
+  } = req.body
+
+  if (!title || !amount || !billing_cycle || !due_date) {
+    return res.status(400).json({
+      success: false,
+      message: 'Title, amount, billing cycle and due date are required',
+    })
+  }
+
+  const allowedCycles = ['monthly', 'quarterly', 'six_months', 'yearly']
+
+  if (!allowedCycles.includes(billing_cycle)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid billing cycle',
+    })
+  }
+
+  if (!send_to_all && (!Array.isArray(student_ids) || student_ids.length === 0)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please select at least one student',
+    })
+  }
+
+  const insertVoucherSql = `
+    INSERT INTO fee_vouchers
+    (title, amount, billing_cycle, due_date, message, created_by)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `
+
+  db.query(
+    insertVoucherSql,
+    [
+      title,
+      Number(amount),
+      billing_cycle,
+      due_date,
+      message || null,
+      created_by || null,
+    ],
+    (voucherErr, voucherResult) => {
+      if (voucherErr) {
+        console.log('CREATE FEE VOUCHER ERROR:', voucherErr)
+        return res.status(500).json({
+          success: false,
+          message: voucherErr.message,
+        })
+      }
+
+      const voucherId = voucherResult.insertId
+
+      let studentsSql = `
+        SELECT
+          s.id AS student_id,
+          u.name,
+          u.email,
+          s.reg_no,
+          s.department
+        FROM students s
+        JOIN users u
+          ON s.user_id = u.id
+        WHERE s.status = 'active'
+      `
+
+      const params = []
+
+      if (!send_to_all) {
+        studentsSql += ` AND s.id IN (?)`
+        params.push(student_ids)
+      }
+
+      db.query(studentsSql, params, (studentsErr, students) => {
+        if (studentsErr) {
+          console.log('FETCH VOUCHER STUDENTS ERROR:', studentsErr)
+          return res.status(500).json({
+            success: false,
+            message: studentsErr.message,
+          })
+        }
+
+        if (!students.length) {
+          return res.status(404).json({
+            success: false,
+            message: 'No students found',
+          })
+        }
+
+        const values = students.map(student => [
+          voucherId,
+          student.student_id,
+          'unpaid',
+        ])
+
+        const assignSql = `
+          INSERT IGNORE INTO fee_voucher_students
+          (voucher_id, student_id, status)
+          VALUES ?
+        `
+
+        db.query(assignSql, [values], async assignErr => {
+          if (assignErr) {
+            console.log('ASSIGN VOUCHER ERROR:', assignErr)
+            return res.status(500).json({
+              success: false,
+              message: assignErr.message,
+            })
+          }
+
+          for (const student of students) {
+            await sendMailSafe({
+              to: student.email,
+              subject: `Fee Voucher Issued - ${title}`,
+              html: getFeeVoucherEmailHtml({
+                studentName: student.name,
+                title,
+                amount,
+                billingCycle: billing_cycle,
+                dueDate: due_date,
+                message,
+              }),
+            })
+          }
+
+          res.json({
+            success: true,
+            message: `Fee voucher sent to ${students.length} student(s)`,
+            voucher_id: voucherId,
+            total_students: students.length,
+          })
+        })
+      })
+    }
+  )
+})
+
+// Admin: see all vouchers with paid/unpaid count
+app.get('/fee/admin-vouchers', (req, res) => {
+  const sql = `
+    SELECT
+      fv.id,
+      fv.title,
+      fv.amount,
+      fv.billing_cycle,
+      fv.due_date,
+      fv.message,
+      fv.created_at,
+
+      COUNT(fvs.id) AS total_students,
+      SUM(CASE WHEN fvs.status = 'paid' THEN 1 ELSE 0 END) AS paid_count,
+      SUM(CASE WHEN fvs.status != 'paid' THEN 1 ELSE 0 END) AS unpaid_count
+
+    FROM fee_vouchers fv
+    LEFT JOIN fee_voucher_students fvs
+      ON fvs.voucher_id = fv.id
+    GROUP BY fv.id
+    ORDER BY fv.id DESC
+  `
+
+  db.query(sql, (err, result) => {
+    if (err) {
+      console.log('ADMIN FEE VOUCHERS ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      vouchers: result,
+    })
+  })
+})
+
+// Admin: see students status for one voucher
+app.get('/fee/voucher-students/:voucherId', (req, res) => {
+  const { voucherId } = req.params
+
+  const sql = `
+    SELECT
+      fvs.id AS voucher_student_id,
+      fvs.status,
+      fvs.paid_at,
+      fvs.reminder_count,
+      fvs.last_reminder_at,
+
+      s.id AS student_id,
+      s.reg_no,
+      s.department,
+
+      u.name,
+      u.email,
+
+      fv.title,
+      fv.amount,
+      fv.billing_cycle,
+      fv.due_date
+
+    FROM fee_voucher_students fvs
+    JOIN fee_vouchers fv
+      ON fv.id = fvs.voucher_id
+    JOIN students s
+      ON s.id = fvs.student_id
+    JOIN users u
+      ON u.id = s.user_id
+    WHERE fvs.voucher_id = ?
+    ORDER BY fvs.status ASC, u.name ASC
+  `
+
+  db.query(sql, [voucherId], (err, result) => {
+    if (err) {
+      console.log('VOUCHER STUDENTS ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      students: result,
+    })
+  })
+})
+
+// Student: get own fee vouchers
+app.get('/fee/student-vouchers/:studentId', (req, res) => {
+  const { studentId } = req.params
+
+  const sql = `
+    SELECT
+      fvs.id AS voucher_student_id,
+      fvs.status,
+      fvs.paid_at,
+      fvs.reminder_count,
+
+      fv.id AS voucher_id,
+      fv.title,
+      fv.amount,
+      fv.billing_cycle,
+      fv.due_date,
+      fv.message,
+      fv.created_at
+
+    FROM fee_voucher_students fvs
+    JOIN fee_vouchers fv
+      ON fv.id = fvs.voucher_id
+    WHERE fvs.student_id = ?
+    ORDER BY fv.id DESC
+  `
+
+  db.query(sql, [studentId], (err, result) => {
+    if (err) {
+      console.log('STUDENT FEE VOUCHERS ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    res.json({
+      success: true,
+      vouchers: result,
+    })
+  })
+})
+
+// Student: start payment
+app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
+  const { voucherStudentId } = req.params
+  const { payment_method } = req.body
+
+  const sql = `
+    SELECT
+      fvs.id AS voucher_student_id,
+      fvs.student_id,
+      fvs.status,
+
+      fv.id AS voucher_id,
+      fv.title,
+      fv.amount
+
+    FROM fee_voucher_students fvs
+    JOIN fee_vouchers fv
+      ON fv.id = fvs.voucher_id
+    WHERE fvs.id = ?
+    LIMIT 1
+  `
+
+  db.query(sql, [voucherStudentId], (err, rows) => {
+    if (err) {
+      console.log('PAYMENT FETCH ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Voucher not found',
+      })
+    }
+
+    const voucher = rows[0]
+
+    if (voucher.status === 'paid') {
+      return res.status(400).json({
+        success: false,
+        message: 'This voucher is already paid',
+      })
+    }
+
+    const transactionRef = `FEE-${Date.now()}-${Math.floor(Math.random() * 100000)}`
+
+    const insertPaymentSql = `
+      INSERT INTO fee_payments
+      (
+        voucher_student_id,
+        student_id,
+        voucher_id,
+        amount,
+        transaction_ref,
+        gateway,
+        payment_method,
+        status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+    `
+
+    db.query(
+      insertPaymentSql,
+      [
+        voucher.voucher_student_id,
+        voucher.student_id,
+        voucher.voucher_id,
+        voucher.amount,
+        transactionRef,
+        process.env.PAYMENT_MODE || 'demo',
+        payment_method || 'hosted_checkout',
+      ],
+      paymentErr => {
+        if (paymentErr) {
+          console.log('CREATE PAYMENT ERROR:', paymentErr)
+          return res.status(500).json({
+            success: false,
+            message: paymentErr.message,
+          })
+        }
+
+        // FYP demo checkout link.
+        // In real gateway, replace this with Easypaisa/JazzCash/PayFast hosted checkout URL.
+        const checkoutUrl = `${APP_PUBLIC_URL}/fee/demo-payment-success/${transactionRef}`
+
+        res.json({
+          success: true,
+          message: 'Payment checkout created',
+          transaction_ref: transactionRef,
+          checkout_url: checkoutUrl,
+        })
+      }
+    )
+  })
+})
+
+// Demo payment success page
+app.get('/fee/demo-payment-success/:transactionRef', (req, res) => {
+  const { transactionRef } = req.params
+
+  const paymentSql = `
+    SELECT *
+    FROM fee_payments
+    WHERE transaction_ref = ?
+    LIMIT 1
+  `
+
+  db.query(paymentSql, [transactionRef], (err, rows) => {
+    if (err) {
+      console.log('DEMO PAYMENT ERROR:', err)
+      return res.status(500).send('Payment failed')
+    }
+
+    if (!rows.length) {
+      return res.status(404).send('Payment not found')
+    }
+
+    const payment = rows[0]
+
+    if (payment.status === 'paid') {
+      return res.send(`
+        <html>
+          <body style="font-family:Arial;text-align:center;padding:40px;">
+            <h2 style="color:green;">Already Paid</h2>
+            <p>This voucher is already marked as paid.</p>
+          </body>
+        </html>
+      `)
+    }
+
+    db.beginTransaction(txErr => {
+      if (txErr) {
+        return res.status(500).send('Transaction failed')
+      }
+
+      const updatePaymentSql = `
+        UPDATE fee_payments
+        SET
+          status = 'paid',
+          paid_at = NOW(),
+          gateway_response = ?
+        WHERE transaction_ref = ?
+      `
+
+      db.query(
+        updatePaymentSql,
+        [
+          JSON.stringify({
+            mode: 'demo',
+            status: 'paid',
+            transaction_ref: transactionRef,
+          }),
+          transactionRef,
+        ],
+        payErr => {
+          if (payErr) {
+            return db.rollback(() => {
+              res.status(500).send('Payment update failed')
+            })
+          }
+
+          const updateVoucherSql = `
+            UPDATE fee_voucher_students
+            SET
+              status = 'paid',
+              paid_at = NOW()
+            WHERE id = ?
+          `
+
+          db.query(updateVoucherSql, [payment.voucher_student_id], voucherErr => {
+            if (voucherErr) {
+              return db.rollback(() => {
+                res.status(500).send('Voucher update failed')
+              })
+            }
+
+            db.commit(commitErr => {
+              if (commitErr) {
+                return db.rollback(() => {
+                  res.status(500).send('Commit failed')
+                })
+              }
+
+              res.send(`
+                <html>
+                  <body style="font-family:Arial;text-align:center;padding:40px;">
+                    <h2 style="color:green;">Payment Successful</h2>
+                    <p>Your fee voucher has been marked as paid.</p>
+                    <p>You can close this page and return to the app.</p>
+                  </body>
+                </html>
+              `)
+            })
+          })
+        }
+      )
+    })
+  })
+})
+
+// Admin: manually send reminders
+app.post('/fee/send-reminders', (req, res) => {
+  sendFeeReminders()
+    .then(count => {
+      res.json({
+        success: true,
+        message: `Reminder emails sent to ${count} unpaid student(s)`,
+      })
+    })
+    .catch(error => {
+      console.log('SEND REMINDERS ERROR:', error)
+      res.status(500).json({
+        success: false,
+        message: error.message,
+      })
+    })
+})
+
+const sendFeeReminders = () => {
+  return new Promise((resolve, reject) => {
+    const sql = `
+      SELECT
+        fvs.id AS voucher_student_id,
+        fvs.reminder_count,
+
+        fv.title,
+        fv.amount,
+        fv.due_date,
+
+        u.name AS student_name,
+        u.email AS student_email
+
+      FROM fee_voucher_students fvs
+      JOIN fee_vouchers fv
+        ON fv.id = fvs.voucher_id
+      JOIN students s
+        ON s.id = fvs.student_id
+      JOIN users u
+        ON u.id = s.user_id
+
+      WHERE fvs.status != 'paid'
+        AND fv.due_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+        AND (
+          fvs.last_reminder_at IS NULL
+          OR DATE(fvs.last_reminder_at) < CURDATE()
+        )
+    `
+
+    db.query(sql, async (err, rows) => {
+      if (err) return reject(err)
+
+      let sentCount = 0
+
+      for (const row of rows) {
+        const sent = await sendMailSafe({
+          to: row.student_email,
+          subject: `Fee Reminder - ${row.title}`,
+          html: getFeeReminderEmailHtml({
+            studentName: row.student_name,
+            title: row.title,
+            amount: row.amount,
+            dueDate: row.due_date,
+          }),
+        })
+
+        if (sent) {
+          sentCount++
+
+          db.query(
+            `
+            UPDATE fee_voucher_students
+            SET
+              reminder_count = reminder_count + 1,
+              last_reminder_at = NOW()
+            WHERE id = ?
+            `,
+            [row.voucher_student_id]
+          )
+        }
+      }
+
+      resolve(sentCount)
+    })
+  })
+}
+
+// Automatic reminder every day at 9 AM server time
+cron.schedule('0 9 * * *', async () => {
+  try {
+    const count = await sendFeeReminders()
+    console.log(`Fee reminder cron completed. Emails sent: ${count}`)
+  } catch (error) {
+    console.log('Fee reminder cron failed:', error.message)
+  }
+})
 
 // ================= START SERVER =================
 app.listen(PORT, () => {
