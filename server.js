@@ -792,29 +792,34 @@ app.get('/student-requests', (req, res) => {
 })
 
 app.post('/request-transport', (req, res) => {
-  const { student_id, route_id } = req.body
+  const { student_id, route_id, student_stop_id } = req.body
+
+  if (!student_id || !route_id) {
+    return res.status(400).json({
+      message: 'Student and route are required',
+    })
+  }
 
   const sql = `
     INSERT INTO transport_requests
-    (student_id, route_id)
-    VALUES (?, ?)
+    (student_id, route_id, student_stop_id)
+    VALUES (?, ?, ?)
   `
 
   db.query(
     sql,
-    [student_id, route_id],
+    [student_id, route_id, student_stop_id || null],
     (err, result) => {
       if (err) {
         console.log(err)
 
-        return res
-          .status(500)
-          .json({ message: 'DB Error' })
+        return res.status(500).json({
+          message: 'DB Error',
+        })
       }
 
       res.json({
-        message:
-          'Transport request submitted successfully',
+        message: 'Transport request submitted successfully',
       })
     },
   )
@@ -1813,7 +1818,12 @@ app.post('/update-bus-location', (req, res) => {
         })
       }
 
-      checkBusArrivalAndNotifyStudents(bus_id, route_id, latitude, longitude)
+      checkBusDelayAndArrivalAndNotifyStudents(
+  bus_id,
+  route_id,
+  latitude,
+  longitude,
+)
 
       res.json({
         success: true,
@@ -2046,17 +2056,201 @@ const getDistanceInMeters = (lat1, lon1, lat2, lon2) => {
   return R * c
 }
 
-const checkBusArrivalAndNotifyStudents = (
+const sendPushNotification = async ({
+  token,
+  title,
+  body,
+  type = 'general',
+  data = {},
+}) => {
+  if (!token) return false
+
+  try {
+    await admin.messaging().send({
+      token,
+
+      notification: {
+        title,
+        body,
+      },
+
+      data: {
+        title: String(title),
+        body: String(body),
+        type: String(type),
+        ...Object.fromEntries(
+          Object.entries(data).map(([key, value]) => [
+            key,
+            String(value ?? ''),
+          ]),
+        ),
+      },
+
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'uol_transport_alerts',
+        },
+      },
+    })
+
+    return true
+  } catch (error) {
+    console.log('FCM SEND ERROR:', error.message || error)
+    return false
+  }
+}
+
+const hasAlreadySentBusAlert = ({
+  busId,
+  routeId,
+  studentId,
+  alertType,
+}) => {
+  return new Promise(resolve => {
+    const query = `
+      SELECT id
+      FROM bus_student_alerts
+      WHERE bus_id = ?
+      AND route_id = ?
+      AND student_id = ?
+      AND alert_type = ?
+      AND trip_date = CURDATE()
+      LIMIT 1
+    `
+
+    db.query(
+      query,
+      [busId, routeId, studentId, alertType],
+      (err, rows) => {
+        if (err) {
+          console.log('CHECK BUS ALERT ERROR:', err)
+          return resolve(true)
+        }
+
+        resolve(rows.length > 0)
+      },
+    )
+  })
+}
+
+const markBusAlertSent = ({
+  busId,
+  routeId,
+  studentId,
+  alertType,
+}) => {
+  return new Promise(resolve => {
+    const query = `
+      INSERT IGNORE INTO bus_student_alerts
+      (bus_id, route_id, student_id, alert_type, trip_date)
+      VALUES (?, ?, ?, ?, CURDATE())
+    `
+
+    db.query(
+      query,
+      [busId, routeId, studentId, alertType],
+      err => {
+        if (err) {
+          console.log('MARK BUS ALERT ERROR:', err)
+          return resolve(false)
+        }
+
+        resolve(true)
+      },
+    )
+  })
+}
+
+const getTripElapsedMinutes = ({ busId, routeId }) => {
+  return new Promise(resolve => {
+    const query = `
+      SELECT TIMESTAMPDIFF(MINUTE, MIN(updated_at), NOW()) AS elapsed_minutes
+      FROM bus_live_locations
+      WHERE bus_id = ?
+      AND route_id = ?
+      AND status = 'running'
+      AND DATE(updated_at) = CURDATE()
+    `
+
+    db.query(query, [busId, routeId], (err, rows) => {
+      if (err) {
+        console.log('TRIP ELAPSED ERROR:', err)
+        return resolve(0)
+      }
+
+      resolve(Number(rows?.[0]?.elapsed_minutes || 0))
+    })
+  })
+}
+
+const saveStudentSystemNotification = ({
+  userId,
+  title,
+  message,
+}) => {
+  return new Promise(resolve => {
+    const insertNotificationQuery = `
+      INSERT INTO admin_notifications
+      (title, message, target_role, created_by)
+      VALUES (?, ?, 'student', NULL)
+    `
+
+    db.query(
+      insertNotificationQuery,
+      [title, message],
+      (err, notificationResult) => {
+        if (err) {
+          console.log('SYSTEM NOTIFICATION INSERT ERROR:', err)
+          return resolve(false)
+        }
+
+        const notificationId = notificationResult.insertId
+
+        const insertUserNotificationQuery = `
+          INSERT INTO user_notifications
+          (notification_id, user_id, is_read)
+          VALUES (?, ?, 0)
+        `
+
+        db.query(
+          insertUserNotificationQuery,
+          [notificationId, String(userId)],
+          err2 => {
+            if (err2) {
+              console.log('SYSTEM USER NOTIFICATION ERROR:', err2)
+              return resolve(false)
+            }
+
+            resolve(true)
+          },
+        )
+      },
+    )
+  })
+}
+
+const checkBusDelayAndArrivalAndNotifyStudents = async (
   busId,
   routeId,
   busLat,
-  busLng
+  busLng,
 ) => {
+  const elapsedMinutes = await getTripElapsedMinutes({
+    busId,
+    routeId,
+  })
+
+  const delayThresholdMinutes = 35
+  const arrivalDistanceMeters = 80
+
   const sql = `
     SELECT 
       tr.student_id,
+      s.user_id,
       u.fcm_token,
       u.name,
+
       rs.stop_name,
       rs.latitude,
       rs.longitude
@@ -2064,13 +2258,22 @@ const checkBusArrivalAndNotifyStudents = (
     FROM transport_requests tr
 
     JOIN students s
-    ON tr.student_id = s.id
+      ON tr.student_id = s.id
 
     JOIN users u
-    ON s.user_id = u.id
+      ON s.user_id = u.id
 
     JOIN route_stops rs
-    ON tr.route_id = rs.route_id
+      ON rs.id = COALESCE(
+        tr.student_stop_id,
+        (
+          SELECT rs2.id
+          FROM route_stops rs2
+          WHERE rs2.route_id = tr.route_id
+          ORDER BY rs2.stop_order ASC
+          LIMIT 1
+        )
+      )
 
     WHERE tr.assigned_bus_id = ?
     AND tr.route_id = ?
@@ -2080,31 +2283,98 @@ const checkBusArrivalAndNotifyStudents = (
 
   db.query(sql, [busId, routeId], async (err, students) => {
     if (err) {
-      console.log('ARRIVAL CHECK ERROR:', err)
+      console.log('BUS ALERT CHECK ERROR:', err)
       return
     }
 
     for (const student of students) {
+      const studentId = student.student_id
+      const userId = student.user_id
+
+      if (elapsedMinutes >= delayThresholdMinutes) {
+        const alreadyDelaySent = await hasAlreadySentBusAlert({
+          busId,
+          routeId,
+          studentId,
+          alertType: 'delay',
+        })
+
+        if (!alreadyDelaySent) {
+          const title = 'Bus Delayed'
+          const body =
+            'Sorry for the delay. Your bus is arriving soon.'
+
+          await sendPushNotification({
+            token: student.fcm_token,
+            title,
+            body,
+            type: 'bus_delay',
+            data: {
+              bus_id: busId,
+              route_id: routeId,
+              elapsed_minutes: elapsedMinutes,
+            },
+          })
+
+          await saveStudentSystemNotification({
+            userId,
+            title,
+            message: body,
+          })
+
+          await markBusAlertSent({
+            busId,
+            routeId,
+            studentId,
+            alertType: 'delay',
+          })
+        }
+      }
+
       const distance = getDistanceInMeters(
         Number(busLat),
         Number(busLng),
         Number(student.latitude),
-        Number(student.longitude)
+        Number(student.longitude),
       )
 
-      if (distance <= 80) {
-        try {
-          // await admin.messaging().send({
-          //   token: student.fcm_token,
-          //   notification: {
-          //     title: 'Bus Arrived',
-          //     body: `Your bus has arrived at ${student.stop_name}. Be hurry.`,
-          //   },
-          // })
+      if (distance <= arrivalDistanceMeters) {
+        const alreadyArrivalSent = await hasAlreadySentBusAlert({
+          busId,
+          routeId,
+          studentId,
+          alertType: 'arrived',
+        })
 
-          console.log('Arrival notification sent to:', student.name)
-        } catch (e) {
-          console.log('ARRIVAL FCM ERROR:', e)
+        if (!alreadyArrivalSent) {
+          const title = 'Bus Arrived'
+          const body = `Your bus has arrived at ${student.stop_name}.`
+
+          await sendPushNotification({
+            token: student.fcm_token,
+            title,
+            body,
+            type: 'bus_arrived',
+            data: {
+              bus_id: busId,
+              route_id: routeId,
+              stop_name: student.stop_name,
+              distance_meters: Math.round(distance),
+            },
+          })
+
+          await saveStudentSystemNotification({
+            userId,
+            title,
+            message: body,
+          })
+
+          await markBusAlertSent({
+            busId,
+            routeId,
+            studentId,
+            alertType: 'arrived',
+          })
         }
       }
     }
@@ -2272,31 +2542,24 @@ app.post('/admin/send-notification', async (req, res) => {
               let failedCount = 0
 
               for (const user of usersWithToken) {
-                try {
-                  // await admin.messaging().send({
-                  //   token: user.fcm_token,
-                  //   notification: {
-                  //     title,
-                  //     body: message,
-                  //   },
-                  //   data: {
-                  //     notification_id: String(notificationId),
-                  //     target_role: target_role,
-                  //     type: 'admin_notification',
-                  //   },
-                  // })
+  const sent = await sendPushNotification({
+    token: user.fcm_token,
+    title,
+    body: message,
+    type: 'admin_notification',
+    data: {
+      notification_id: notificationId,
+      target_role,
+      receiver_id: user.notification_user_id,
+    },
+  })
 
-                  sentCount++
-                } catch (fcmError) {
-                  failedCount++
-
-                  console.log(
-                    'ADMIN NOTIFICATION FCM ERROR:',
-                    user.email || user.name,
-                    fcmError
-                  )
-                }
-              }
+  if (sent) {
+    sentCount++
+  } else {
+    failedCount++
+  }
+}
 
               return res.json({
                 success: true,
