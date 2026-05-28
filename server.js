@@ -3122,7 +3122,16 @@ app.get('/fee/demo-payment-success/:transactionRef', (req, res) => {
             WHERE id = ?
           `
 
-          db.query(updateVoucherSql, [payment.voucher_student_id], voucherErr => {
+          db.query(
+          updateVoucherSql,
+          [
+            payment.selected_billing_cycle,
+            payment.subtotal_amount,
+            payment.tax_amount,
+            payment.total_amount,
+            payment.voucher_student_id,
+          ],
+          voucherErr => {
             if (voucherErr) {
               return db.rollback(() => {
                 res.status(500).send('Voucher update failed')
