@@ -2518,7 +2518,6 @@ const getFeeVoucherEmailHtml = ({
   studentName,
   title,
   amount,
-  billingCycle,
   dueDate,
   message,
 }) => {
@@ -2539,11 +2538,6 @@ const getFeeVoucherEmailHtml = ({
         <tr>
           <td style="border:1px solid #ddd;padding:8px;">Amount</td>
           <td style="border:1px solid #ddd;padding:8px;"><b>PKR ${amount}</b></td>
-        </tr>
-
-        <tr>
-          <td style="border:1px solid #ddd;padding:8px;">Billing Cycle</td>
-          <td style="border:1px solid #ddd;padding:8px;">${billingCycle}</td>
         </tr>
 
         <tr>
@@ -2619,31 +2613,21 @@ app.get('/fee/students', (req, res) => {
 // Admin: send fee voucher to all or selected students
 app.post('/fee/send-vouchers', (req, res) => {
   const {
-    title,
-    amount,
-    billing_cycle,
-    due_date,
-    message,
-    send_to_all,
-    student_ids,
-    created_by,
-  } = req.body
+  title,
+  amount,
+  due_date,
+  message,
+  send_to_all,
+  student_ids,
+  created_by,
+} = req.body
 
-  if (!title || !amount || !billing_cycle || !due_date) {
-    return res.status(400).json({
-      success: false,
-      message: 'Title, amount, billing cycle and due date are required',
-    })
-  }
-
-  const allowedCycles = ['monthly', 'quarterly', 'six_months', 'yearly']
-
-  if (!allowedCycles.includes(billing_cycle)) {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid billing cycle',
-    })
-  }
+  if (!title || !amount || !due_date) {
+  return res.status(400).json({
+    success: false,
+    message: 'Title, amount and due date are required',
+  })
+}
 
   if (!send_to_all && (!Array.isArray(student_ids) || student_ids.length === 0)) {
     return res.status(400).json({
@@ -2654,8 +2638,8 @@ app.post('/fee/send-vouchers', (req, res) => {
 
   const insertVoucherSql = `
     INSERT INTO fee_vouchers
-    (title, amount, billing_cycle, due_date, message, created_by)
-    VALUES (?, ?, ?, ?, ?, ?)
+    (title, amount, due_date, message, created_by)
+    VALUES (?, ?, ?, ?, ?)
   `
 
   db.query(
@@ -2663,7 +2647,6 @@ app.post('/fee/send-vouchers', (req, res) => {
     [
       title,
       Number(amount),
-      billing_cycle,
       due_date,
       message || null,
       created_by || null,
@@ -2741,13 +2724,12 @@ app.post('/fee/send-vouchers', (req, res) => {
               to: student.email,
               subject: `Fee Voucher Issued - ${title}`,
               html: getFeeVoucherEmailHtml({
-                studentName: student.name,
-                title,
-                amount,
-                billingCycle: billing_cycle,
-                dueDate: due_date,
-                message,
-              }),
+              studentName: student.name,
+              title,
+              amount,
+              dueDate: due_date,
+              message,
+            }),
             })
           }
 
@@ -2770,7 +2752,6 @@ app.get('/fee/admin-vouchers', (req, res) => {
       fv.id,
       fv.title,
       fv.amount,
-      fv.billing_cycle,
       fv.due_date,
       fv.message,
       fv.created_at,
@@ -2813,6 +2794,10 @@ app.get('/fee/voucher-students/:voucherId', (req, res) => {
       fvs.paid_at,
       fvs.reminder_count,
       fvs.last_reminder_at,
+      fvs.selected_billing_cycle,
+      fvs.subtotal_amount,
+      fvs.tax_amount,
+      fvs.total_amount,
 
       s.id AS student_id,
       s.reg_no,
@@ -2823,7 +2808,6 @@ app.get('/fee/voucher-students/:voucherId', (req, res) => {
 
       fv.title,
       fv.amount,
-      fv.billing_cycle,
       fv.due_date
 
     FROM fee_voucher_students fvs
@@ -2863,11 +2847,14 @@ app.get('/fee/student-vouchers/:studentId', (req, res) => {
       fvs.status,
       fvs.paid_at,
       fvs.reminder_count,
+      fvs.selected_billing_cycle,
+      fvs.subtotal_amount,
+      fvs.tax_amount,
+      fvs.total_amount,
 
       fv.id AS voucher_id,
       fv.title,
       fv.amount,
-      fv.billing_cycle,
       fv.due_date,
       fv.message,
       fv.created_at
