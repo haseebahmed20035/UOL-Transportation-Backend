@@ -1,5 +1,5 @@
 const db = require('./config/db')
-// const admin = require('./firebase');
+const admin = require('./firebase');
 const express = require('express')
 const cors = require('cors')
 const transporter = require('./config/mail')
