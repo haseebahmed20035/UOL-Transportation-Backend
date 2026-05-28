@@ -6,6 +6,7 @@ const transporter = require('./config/mail')
 const cron = require('node-cron')
 const app = express()
 require("dotenv").config();
+const PDFDocument = require('pdfkit')
 
 app.use(cors())
 app.use(express.json())
@@ -2447,6 +2448,44 @@ app.delete('/clear-user-notifications/:userId', (req, res) => {
 })
 
 // ================= FEE VOUCHER SYSTEM =================
+const TAX_RATE = 0.16
+
+const billingCycleLabels = {
+  monthly: 'Monthly',
+  quarterly: 'Quarterly',
+  six_months: '6 Months',
+  yearly: 'Yearly',
+}
+
+const billingCycleMultipliers = {
+  monthly: 1,
+  quarterly: 3,
+  six_months: 6,
+  yearly: 12,
+}
+
+const calculateFeeAmounts = (baseAmount, billingCycle) => {
+  const multiplier = billingCycleMultipliers[billingCycle] || 1
+
+  const subtotal = Number(baseAmount) * multiplier
+  const tax = subtotal * TAX_RATE
+  const total = subtotal + tax
+
+  return {
+    subtotal: Number(subtotal.toFixed(2)),
+    tax: Number(tax.toFixed(2)),
+    total: Number(total.toFixed(2)),
+  }
+}
+
+const formatMoney = value => {
+  return `PKR ${Number(value || 0).toLocaleString()}`
+}
+
+const formatDate = value => {
+  if (!value) return '-'
+  return String(value).slice(0, 10)
+}
 
 const APP_PUBLIC_URL =
   process.env.APP_PUBLIC_URL || `http://localhost:${process.env.PORT || 5000}`
@@ -2859,7 +2898,16 @@ app.get('/fee/student-vouchers/:studentId', (req, res) => {
 // Student: start payment
 app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
   const { voucherStudentId } = req.params
-  const { payment_method } = req.body
+  const { payment_method, billing_cycle } = req.body
+
+  const allowedCycles = ['monthly', 'quarterly', 'six_months', 'yearly']
+
+  if (!allowedCycles.includes(billing_cycle)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please select a valid payment plan',
+    })
+  }
 
   const sql = `
     SELECT
@@ -2903,6 +2951,8 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
       })
     }
 
+    const amounts = calculateFeeAmounts(voucher.amount, billing_cycle)
+
     const transactionRef = `FEE-${Date.now()}-${Math.floor(Math.random() * 100000)}`
 
     const insertPaymentSql = `
@@ -2912,12 +2962,16 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
         student_id,
         voucher_id,
         amount,
+        selected_billing_cycle,
+        subtotal_amount,
+        tax_amount,
+        total_amount,
         transaction_ref,
         gateway,
         payment_method,
         status
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
     `
 
     db.query(
@@ -2926,7 +2980,11 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
         voucher.voucher_student_id,
         voucher.student_id,
         voucher.voucher_id,
-        voucher.amount,
+        amounts.total,
+        billing_cycle,
+        amounts.subtotal,
+        amounts.tax,
+        amounts.total,
         transactionRef,
         process.env.PAYMENT_MODE || 'demo',
         payment_method || 'hosted_checkout',
@@ -2940,16 +2998,48 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
           })
         }
 
-        // FYP demo checkout link.
-        // In real gateway, replace this with Easypaisa/JazzCash/PayFast hosted checkout URL.
-        const checkoutUrl = `${APP_PUBLIC_URL}/fee/demo-payment-success/${transactionRef}`
+        const saveSelectionSql = `
+          UPDATE fee_voucher_students
+          SET
+            selected_billing_cycle = ?,
+            subtotal_amount = ?,
+            tax_amount = ?,
+            total_amount = ?
+          WHERE id = ?
+        `
 
-        res.json({
-          success: true,
-          message: 'Payment checkout created',
-          transaction_ref: transactionRef,
-          checkout_url: checkoutUrl,
-        })
+        db.query(
+          saveSelectionSql,
+          [
+            billing_cycle,
+            amounts.subtotal,
+            amounts.tax,
+            amounts.total,
+            voucher.voucher_student_id,
+          ],
+          selectionErr => {
+            if (selectionErr) {
+              console.log('SAVE SELECTED PLAN ERROR:', selectionErr)
+              return res.status(500).json({
+                success: false,
+                message: selectionErr.message,
+              })
+            }
+
+            const checkoutUrl = `${APP_PUBLIC_URL}/fee/demo-payment-success/${transactionRef}`
+
+            res.json({
+              success: true,
+              message: 'Payment checkout created',
+              transaction_ref: transactionRef,
+              checkout_url: checkoutUrl,
+              billing_cycle,
+              subtotal_amount: amounts.subtotal,
+              tax_amount: amounts.tax,
+              total_amount: amounts.total,
+            })
+          }
+        )
       }
     )
   })
@@ -3024,7 +3114,11 @@ app.get('/fee/demo-payment-success/:transactionRef', (req, res) => {
             UPDATE fee_voucher_students
             SET
               status = 'paid',
-              paid_at = NOW()
+              paid_at = NOW(),
+              selected_billing_cycle = ?,
+              subtotal_amount = ?,
+              tax_amount = ?,
+              total_amount = ?
             WHERE id = ?
           `
 
@@ -3153,6 +3247,704 @@ cron.schedule('0 9 * * *', async () => {
   } catch (error) {
     console.log('Fee reminder cron failed:', error.message)
   }
+})
+
+app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
+  const { voucherStudentId } = req.params
+  const requestedCycle = req.query.billing_cycle
+
+  const allowedCycles = ['monthly', 'quarterly', 'six_months', 'yearly']
+
+  const sql = `
+    SELECT
+      fvs.id AS voucher_student_id,
+      fvs.status,
+      fvs.paid_at,
+      fvs.selected_billing_cycle,
+      fvs.subtotal_amount,
+      fvs.tax_amount,
+      fvs.total_amount,
+
+      fv.id AS voucher_id,
+      fv.title,
+      fv.amount AS base_amount,
+      fv.due_date,
+      fv.message,
+      fv.created_at,
+
+      s.id AS student_id,
+      s.reg_no,
+      s.department,
+
+      u.name AS student_name,
+      u.email AS student_email,
+
+      tr.id AS transport_request_id,
+      tr.approved_at,
+
+      r.id AS route_id,
+      r.route_name,
+      r.source,
+      r.destination,
+      r.estimated_time,
+
+      b.bus_number,
+      b.driver_name,
+      b.capacity
+
+    FROM fee_voucher_students fvs
+
+    JOIN fee_vouchers fv
+      ON fv.id = fvs.voucher_id
+
+    JOIN students s
+      ON s.id = fvs.student_id
+
+    JOIN users u
+      ON u.id = s.user_id
+
+    LEFT JOIN transport_requests tr
+      ON tr.student_id = s.id
+      AND tr.status = 'approved'
+
+    LEFT JOIN routes r
+      ON r.id = tr.route_id
+
+    LEFT JOIN buses b
+      ON b.id = tr.assigned_bus_id
+
+    WHERE fvs.id = ?
+
+    ORDER BY tr.id DESC
+    LIMIT 1
+  `
+
+  db.query(sql, [voucherStudentId], (err, rows) => {
+    if (err) {
+      console.log('PDF VOUCHER FETCH ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Voucher not found',
+      })
+    }
+
+    const data = rows[0]
+
+    let finalCycle =
+      data.selected_billing_cycle ||
+      requestedCycle ||
+      'monthly'
+
+    if (!allowedCycles.includes(finalCycle)) {
+      finalCycle = 'monthly'
+    }
+
+    const calculated = calculateFeeAmounts(data.base_amount, finalCycle)
+
+    const subtotal =
+      Number(data.subtotal_amount) > 0
+        ? Number(data.subtotal_amount)
+        : calculated.subtotal
+
+    const tax =
+      Number(data.tax_amount) > 0
+        ? Number(data.tax_amount)
+        : calculated.tax
+
+    const total =
+      Number(data.total_amount) > 0
+        ? Number(data.total_amount)
+        : calculated.total
+
+    const stopsSql = `
+      SELECT stop_name
+      FROM route_stops
+      WHERE route_id = ?
+      ORDER BY stop_order ASC
+    `
+
+    db.query(stopsSql, [data.route_id], (stopsErr, stops) => {
+      if (stopsErr) {
+        console.log('PDF STOPS ERROR:', stopsErr)
+        return res.status(500).json({
+          success: false,
+          message: stopsErr.message,
+        })
+      }
+
+      const fileName = `UOL-Fee-Voucher-${data.reg_no || data.student_id}.pdf`
+
+      res.setHeader('Content-Type', 'application/pdf')
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${fileName}"`
+      )
+
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 45,
+      })
+
+      doc.pipe(res)
+
+      // Header background
+      doc
+        .rect(0, 0, 595, 115)
+        .fill('#175812')
+
+      doc
+        .fillColor('#FFFFFF')
+        .fontSize(22)
+        .font('Helvetica-Bold')
+        .text('UOL Transportation App', 45, 32)
+
+      doc
+        .fontSize(13)
+        .font('Helvetica')
+        .text('Official Fee Voucher', 45, 62)
+
+      doc
+        .fontSize(10)
+        .text(`Voucher No: UOL-FEE-${data.voucher_student_id}`, 390, 35)
+        .text(`Issue Date: ${formatDate(data.created_at)}`, 390, 55)
+        .text(`Due Date: ${formatDate(data.due_date)}`, 390, 75)
+
+      // Status badge
+      const statusColor = data.status === 'paid' ? '#219653' : '#F2994A'
+
+      doc
+        .roundedRect(45, 135, 505, 38, 10)
+        .fill('#F4F8F4')
+
+      doc
+        .fillColor('#175812')
+        .font('Helvetica-Bold')
+        .fontSize(14)
+        .text(data.title || 'Transport Fee Voucher', 60, 147)
+
+      doc
+        .fillColor(statusColor)
+        .fontSize(11)
+        .text(String(data.status || 'unpaid').toUpperCase(), 470, 148)
+
+      // Student info
+      let y = 200
+
+      doc
+        .fillColor('#111827')
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text('Student Information', 45, y)
+
+      y += 25
+
+      const infoRow = (label, value, x1, x2, yy) => {
+        doc
+          .fillColor('#6B7280')
+          .font('Helvetica-Bold')
+          .fontSize(9)
+          .text(label, x1, yy)
+
+        doc
+          .fillColor('#111827')
+          .font('Helvetica')
+          .fontSize(11)
+          .text(value || '-', x2, yy)
+      }
+
+      infoRow('Name', data.student_name, 45, 135, y)
+      infoRow('Reg No', data.reg_no, 330, 420, y)
+
+      y += 22
+      infoRow('Email', data.student_email, 45, 135, y)
+      infoRow('Department', data.department, 330, 420, y)
+
+      // Route info
+      y += 45
+
+      doc
+        .fillColor('#111827')
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text('Selected Route Information', 45, y)
+
+      y += 25
+
+      infoRow('Route Name', data.route_name, 45, 135, y)
+      infoRow('Bus Number', data.bus_number, 330, 420, y)
+
+      y += 22
+      infoRow('Source', data.source, 45, 135, y)
+      infoRow('Destination', data.destination, 330, 420, y)
+
+      y += 22
+      infoRow('Estimated Time', data.estimated_time, 45, 135, y)
+      infoRow('Driver', data.driver_name, 330, 420, y)
+
+      y += 30
+
+      const stopNames = Array.isArray(stops)
+        ? stops.map(item => item.stop_name).filter(Boolean)
+        : []
+
+      doc
+        .fillColor('#6B7280')
+        .font('Helvetica-Bold')
+        .fontSize(9)
+        .text('Route Stops', 45, y)
+
+      y += 15
+
+      doc
+        .fillColor('#111827')
+        .font('Helvetica')
+        .fontSize(10)
+        .text(
+          stopNames.length ? stopNames.join('  →  ') : '-',
+          45,
+          y,
+          { width: 505, lineGap: 4 }
+        )
+
+      y += 60
+
+      // Fee table
+      doc
+        .fillColor('#111827')
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text('Fee Breakdown', 45, y)
+
+      y += 25
+
+      const tableX = 45
+      const tableW = 505
+      const rowH = 30
+
+      doc
+        .roundedRect(tableX, y, tableW, rowH, 8)
+        .fill('#175812')
+
+      doc
+        .fillColor('#FFFFFF')
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text('Description', tableX + 15, y + 10)
+        .text('Amount', tableX + 390, y + 10)
+
+      y += rowH
+
+      const amountRow = (label, value, isTotal = false) => {
+        doc
+          .rect(tableX, y, tableW, rowH)
+          .fill(isTotal ? '#F4F8F4' : '#FFFFFF')
+          .strokeColor('#E5E7EB')
+          .rect(tableX, y, tableW, rowH)
+          .stroke()
+
+        doc
+          .fillColor(isTotal ? '#175812' : '#111827')
+          .font(isTotal ? 'Helvetica-Bold' : 'Helvetica')
+          .fontSize(isTotal ? 12 : 10)
+          .text(label, tableX + 15, y + 9)
+
+        doc
+          .text(formatMoney(value), tableX + 360, y + 9, {
+            width: 120,
+            align: 'right',
+          })
+
+        y += rowH
+      }
+
+      amountRow(
+        `Base Fee x ${billingCycleLabels[finalCycle] || 'Monthly'}`,
+        subtotal
+      )
+      amountRow('Tax 16%', tax)
+      amountRow('Total Payable Amount', total, true)
+
+      y += 30
+
+      doc
+        .fillColor('#6B7280')
+        .font('Helvetica')
+        .fontSize(10)
+        .text(
+          'This is a computer-generated fee voucher for UOL Transportation App. Please pay before the due date to avoid service interruption.',
+          45,
+          y,
+          { width: 505, align: 'center' }
+        )
+
+      doc
+        .fillColor('#175812')
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text('Thank you for using UOL Transportation App', 45, 760, {
+          width: 505,
+          align: 'center',
+        })
+
+      doc.end()
+    })
+  })
+})
+// ================= PDF DOWNLOAD =================
+app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
+  const { voucherStudentId } = req.params
+  const requestedCycle = req.query.billing_cycle
+
+  const allowedCycles = ['monthly', 'quarterly', 'six_months', 'yearly']
+
+  const sql = `
+    SELECT
+      fvs.id AS voucher_student_id,
+      fvs.status,
+      fvs.paid_at,
+      fvs.selected_billing_cycle,
+      fvs.subtotal_amount,
+      fvs.tax_amount,
+      fvs.total_amount,
+
+      fv.id AS voucher_id,
+      fv.title,
+      fv.amount AS base_amount,
+      fv.due_date,
+      fv.message,
+      fv.created_at,
+
+      s.id AS student_id,
+      s.reg_no,
+      s.department,
+
+      u.name AS student_name,
+      u.email AS student_email,
+
+      tr.id AS transport_request_id,
+      tr.approved_at,
+
+      r.id AS route_id,
+      r.route_name,
+      r.source,
+      r.destination,
+      r.estimated_time,
+
+      b.bus_number,
+      b.driver_name,
+      b.capacity
+
+    FROM fee_voucher_students fvs
+
+    JOIN fee_vouchers fv
+      ON fv.id = fvs.voucher_id
+
+    JOIN students s
+      ON s.id = fvs.student_id
+
+    JOIN users u
+      ON u.id = s.user_id
+
+    LEFT JOIN transport_requests tr
+      ON tr.student_id = s.id
+      AND tr.status = 'approved'
+
+    LEFT JOIN routes r
+      ON r.id = tr.route_id
+
+    LEFT JOIN buses b
+      ON b.id = tr.assigned_bus_id
+
+    WHERE fvs.id = ?
+
+    ORDER BY tr.id DESC
+    LIMIT 1
+  `
+
+  db.query(sql, [voucherStudentId], (err, rows) => {
+    if (err) {
+      console.log('PDF VOUCHER FETCH ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Voucher not found',
+      })
+    }
+
+    const data = rows[0]
+
+    let finalCycle =
+      data.selected_billing_cycle ||
+      requestedCycle ||
+      'monthly'
+
+    if (!allowedCycles.includes(finalCycle)) {
+      finalCycle = 'monthly'
+    }
+
+    const calculated = calculateFeeAmounts(data.base_amount, finalCycle)
+
+    const subtotal =
+      Number(data.subtotal_amount) > 0
+        ? Number(data.subtotal_amount)
+        : calculated.subtotal
+
+    const tax =
+      Number(data.tax_amount) > 0
+        ? Number(data.tax_amount)
+        : calculated.tax
+
+    const total =
+      Number(data.total_amount) > 0
+        ? Number(data.total_amount)
+        : calculated.total
+
+    const stopsSql = `
+      SELECT stop_name
+      FROM route_stops
+      WHERE route_id = ?
+      ORDER BY stop_order ASC
+    `
+
+    db.query(stopsSql, [data.route_id], (stopsErr, stops) => {
+      if (stopsErr) {
+        console.log('PDF STOPS ERROR:', stopsErr)
+        return res.status(500).json({
+          success: false,
+          message: stopsErr.message,
+        })
+      }
+
+      const fileName = `UOL-Fee-Voucher-${data.reg_no || data.student_id}.pdf`
+
+      res.setHeader('Content-Type', 'application/pdf')
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${fileName}"`
+      )
+
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 45,
+      })
+
+      doc.pipe(res)
+
+      // Header background
+      doc
+        .rect(0, 0, 595, 115)
+        .fill('#175812')
+
+      doc
+        .fillColor('#FFFFFF')
+        .fontSize(22)
+        .font('Helvetica-Bold')
+        .text('UOL Transportation App', 45, 32)
+
+      doc
+        .fontSize(13)
+        .font('Helvetica')
+        .text('Official Fee Voucher', 45, 62)
+
+      doc
+        .fontSize(10)
+        .text(`Voucher No: UOL-FEE-${data.voucher_student_id}`, 390, 35)
+        .text(`Issue Date: ${formatDate(data.created_at)}`, 390, 55)
+        .text(`Due Date: ${formatDate(data.due_date)}`, 390, 75)
+
+      // Status badge
+      const statusColor = data.status === 'paid' ? '#219653' : '#F2994A'
+
+      doc
+        .roundedRect(45, 135, 505, 38, 10)
+        .fill('#F4F8F4')
+
+      doc
+        .fillColor('#175812')
+        .font('Helvetica-Bold')
+        .fontSize(14)
+        .text(data.title || 'Transport Fee Voucher', 60, 147)
+
+      doc
+        .fillColor(statusColor)
+        .fontSize(11)
+        .text(String(data.status || 'unpaid').toUpperCase(), 470, 148)
+
+      // Student info
+      let y = 200
+
+      doc
+        .fillColor('#111827')
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text('Student Information', 45, y)
+
+      y += 25
+
+      const infoRow = (label, value, x1, x2, yy) => {
+        doc
+          .fillColor('#6B7280')
+          .font('Helvetica-Bold')
+          .fontSize(9)
+          .text(label, x1, yy)
+
+        doc
+          .fillColor('#111827')
+          .font('Helvetica')
+          .fontSize(11)
+          .text(value || '-', x2, yy)
+      }
+
+      infoRow('Name', data.student_name, 45, 135, y)
+      infoRow('Reg No', data.reg_no, 330, 420, y)
+
+      y += 22
+      infoRow('Email', data.student_email, 45, 135, y)
+      infoRow('Department', data.department, 330, 420, y)
+
+      // Route info
+      y += 45
+
+      doc
+        .fillColor('#111827')
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text('Selected Route Information', 45, y)
+
+      y += 25
+
+      infoRow('Route Name', data.route_name, 45, 135, y)
+      infoRow('Bus Number', data.bus_number, 330, 420, y)
+
+      y += 22
+      infoRow('Source', data.source, 45, 135, y)
+      infoRow('Destination', data.destination, 330, 420, y)
+
+      y += 22
+      infoRow('Estimated Time', data.estimated_time, 45, 135, y)
+      infoRow('Driver', data.driver_name, 330, 420, y)
+
+      y += 30
+
+      const stopNames = Array.isArray(stops)
+        ? stops.map(item => item.stop_name).filter(Boolean)
+        : []
+
+      doc
+        .fillColor('#6B7280')
+        .font('Helvetica-Bold')
+        .fontSize(9)
+        .text('Route Stops', 45, y)
+
+      y += 15
+
+      doc
+        .fillColor('#111827')
+        .font('Helvetica')
+        .fontSize(10)
+        .text(
+          stopNames.length ? stopNames.join('  →  ') : '-',
+          45,
+          y,
+          { width: 505, lineGap: 4 }
+        )
+
+      y += 60
+
+      // Fee table
+      doc
+        .fillColor('#111827')
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text('Fee Breakdown', 45, y)
+
+      y += 25
+
+      const tableX = 45
+      const tableW = 505
+      const rowH = 30
+
+      doc
+        .roundedRect(tableX, y, tableW, rowH, 8)
+        .fill('#175812')
+
+      doc
+        .fillColor('#FFFFFF')
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text('Description', tableX + 15, y + 10)
+        .text('Amount', tableX + 390, y + 10)
+
+      y += rowH
+
+      const amountRow = (label, value, isTotal = false) => {
+        doc
+          .rect(tableX, y, tableW, rowH)
+          .fill(isTotal ? '#F4F8F4' : '#FFFFFF')
+          .strokeColor('#E5E7EB')
+          .rect(tableX, y, tableW, rowH)
+          .stroke()
+
+        doc
+          .fillColor(isTotal ? '#175812' : '#111827')
+          .font(isTotal ? 'Helvetica-Bold' : 'Helvetica')
+          .fontSize(isTotal ? 12 : 10)
+          .text(label, tableX + 15, y + 9)
+
+        doc
+          .text(formatMoney(value), tableX + 360, y + 9, {
+            width: 120,
+            align: 'right',
+          })
+
+        y += rowH
+      }
+
+      amountRow(
+        `Base Fee x ${billingCycleLabels[finalCycle] || 'Monthly'}`,
+        subtotal
+      )
+      amountRow('Tax 16%', tax)
+      amountRow('Total Payable Amount', total, true)
+
+      y += 30
+
+      doc
+        .fillColor('#6B7280')
+        .font('Helvetica')
+        .fontSize(10)
+        .text(
+          'This is a computer-generated fee voucher for UOL Transportation App. Please pay before the due date to avoid service interruption.',
+          45,
+          y,
+          { width: 505, align: 'center' }
+        )
+
+      doc
+        .fillColor('#175812')
+        .font('Helvetica-Bold')
+        .fontSize(10)
+        .text('Thank you for using UOL Transportation App', 45, 760, {
+          width: 505,
+          align: 'center',
+        })
+
+      doc.end()
+    })
+  })
 })
 
 // ================= START SERVER =================
