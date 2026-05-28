@@ -5,7 +5,7 @@ const cors = require('cors')
 const transporter = require('./config/mail')
 const cron = require('node-cron')
 const app = express()
-require("dotenv").config();
+require('dotenv').config()
 const PDFDocument = require('pdfkit')
 
 app.use(cors())
@@ -14,7 +14,7 @@ app.use(express.json())
 // auth routes
 app.use('/api/auth', require('./routes/authRoutes'))
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000
 
 // ================= ROUTES =================
 
@@ -80,25 +80,25 @@ app.post('/add-route', (req, res) => {
       const routeId = result.insertId
 
       const stopQueries = stops.map((stop, index) => {
-  return new Promise((resolve, reject) => {
-    db.query(
-      'INSERT INTO route_stops (route_id, stop_name, latitude, longitude, stop_order) VALUES (?, ?, ?, ?, ?)',
-      [
-        routeId,
-        stop.stop_name,
-        Number(stop.latitude),
-        Number(stop.longitude),
-        index + 1   // 🔥 Save the order based on array position
-      ],
-      err => {
-        if (err) {
-          console.log('🔥 STOP INSERT ERROR:', err)
-          reject(err)
-        } else resolve()
-      }
-    )
-  })
-})
+        return new Promise((resolve, reject) => {
+          db.query(
+            'INSERT INTO route_stops (route_id, stop_name, latitude, longitude, stop_order) VALUES (?, ?, ?, ?, ?)',
+            [
+              routeId,
+              stop.stop_name,
+              Number(stop.latitude),
+              Number(stop.longitude),
+              index + 1 // 🔥 Save the order based on array position
+            ],
+            err => {
+              if (err) {
+                console.log('🔥 STOP INSERT ERROR:', err)
+                reject(err)
+              } else resolve()
+            }
+          )
+        })
+      })
 
       Promise.all(stopQueries)
         .then(() => res.json({ message: 'Route added successfully' }))
@@ -147,12 +147,12 @@ app.get('/routes-with-stops', (req, res) => {
 
       if (row.stop_name) {
         grouped[row.id].stops.push({
-        id: row.stop_id,
-        stop_name: row.stop_name,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        order: row.stop_order,
-      })
+          id: row.stop_id,
+          stop_name: row.stop_name,
+          latitude: row.latitude,
+          longitude: row.longitude,
+          order: row.stop_order
+        })
       }
     })
 
@@ -163,12 +163,7 @@ app.get('/routes-with-stops', (req, res) => {
 // ================= ADD BUS =================
 
 app.post('/add-bus', (req, res) => {
-  const {
-  driver_id,
-  capacity,
-  route_id,
-  departure_timings,
-} = req.body
+  const { driver_id, capacity, route_id, departure_timings } = req.body
 
   if (!driver_id || !route_id) {
     return res.status(400).json({ message: 'Driver and route required' })
@@ -223,24 +218,23 @@ app.post('/add-bus', (req, res) => {
                     return res.status(500).json({ message: err.message })
                   }
 
-                 db.query(
-  'UPDATE drivers SET is_available = 0 WHERE id = ?',
-  [driver_id]
-)
+                  db.query('UPDATE drivers SET is_available = 0 WHERE id = ?', [
+                    driver_id
+                  ])
 
-// 🔥 SAVE DEPARTURE TIMINGS
-if (departure_timings?.length > 0) {
-  departure_timings.forEach(time => {
-    db.query(
-      `INSERT INTO departure_timings
+                  // 🔥 SAVE DEPARTURE TIMINGS
+                  if (departure_timings?.length > 0) {
+                    departure_timings.forEach(time => {
+                      db.query(
+                        `INSERT INTO departure_timings
        (route_id, departure_time)
        VALUES (?, ?)`,
-      [route_id, time]
-    )
-  })
-}
+                        [route_id, time]
+                      )
+                    })
+                  }
 
-res.json({ message: 'Bus added successfully' })
+                  res.json({ message: 'Bus added successfully' })
                 }
               )
             }
@@ -550,12 +544,12 @@ app.post('/add-student', (req, res) => {
       }
     )
   })
-}) 
+})
 
-app.get("/student/:userId", (req, res) => {
-  const userId = req.params.userId;
+app.get('/student/:userId', (req, res) => {
+  const userId = req.params.userId
 
-    const sql = `
+  const sql = `
     SELECT 
       s.id AS student_id,
       u.id AS user_id,
@@ -566,128 +560,128 @@ app.get("/student/:userId", (req, res) => {
     FROM users u
     JOIN students s ON u.id = s.user_id
     WHERE u.id = ?
-  `;
+  `
 
   db.query(sql, [userId], (err, result) => {
-    if (err) return res.status(500).json({ message: err.message });
+    if (err) return res.status(500).json({ message: err.message })
 
     if (result.length === 0) {
-      return res.status(404).json({ message: "Student not found" });
+      return res.status(404).json({ message: 'Student not found' })
     }
 
-    res.json(result[0]);
-  });
-});
+    res.json(result[0])
+  })
+})
 
 // ==============================OTP============================
 
-const otpStore = {}; // temp store
+const otpStore = {} // temp store
 
-app.post("/send-otp", (req, res) => {
-  const { email } = req.body;
+app.post('/send-otp', (req, res) => {
+  const { email } = req.body
 
   if (!email) {
     return res.status(400).json({
       success: false,
-      message: "Email is required",
-    });
+      message: 'Email is required'
+    })
   }
 
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const otp = Math.floor(100000 + Math.random() * 900000).toString()
 
   // Store OTP with expiry time
   otpStore[email] = {
     otp,
-    expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
-  };
+    expiresAt: Date.now() + 5 * 60 * 1000 // 5 minutes
+  }
 
   // Send response immediately to frontend
   res.json({
     success: true,
-    message: "OTP is being sent to your email",
-  });
+    message: 'OTP is being sent to your email'
+  })
 
   // Send email in background
   transporter.sendMail(
     {
-      from: "haseeb.ahmed20035@gmail.com",
+      from: 'haseeb.ahmed20035@gmail.com',
       to: email,
-      subject: "OTP Verification",
+      subject: 'OTP Verification',
       html: `
         <h2>UOL Transportation App</h2>
         <p>Your OTP for changing password is:</p>
         <h1>${otp}</h1>
         <p>This OTP will expire in 5 minutes.</p>
-      `,
+      `
     },
     err => {
       if (err) {
-        console.log("OTP MAIL ERROR:", err);
+        console.log('OTP MAIL ERROR:', err)
       } else {
-        console.log("OTP MAIL SENT SUCCESSFULLY TO:", email);
+        console.log('OTP MAIL SENT SUCCESSFULLY TO:', email)
       }
     }
-  );
-});
+  )
+})
 
-app.post("/change-password", async (req, res) => {
-  const { email, otp, newPassword } = req.body;
+app.post('/change-password', async (req, res) => {
+  const { email, otp, newPassword } = req.body
 
   if (!email || !otp || !newPassword) {
     return res.status(400).json({
       success: false,
-      message: "Email, OTP and new password are required",
-    });
+      message: 'Email, OTP and new password are required'
+    })
   }
 
-  const savedOtpData = otpStore[email];
+  const savedOtpData = otpStore[email]
 
   if (!savedOtpData) {
     return res.status(400).json({
       success: false,
-      message: "OTP not found. Please request a new OTP.",
-    });
+      message: 'OTP not found. Please request a new OTP.'
+    })
   }
 
   if (Date.now() > savedOtpData.expiresAt) {
-    delete otpStore[email];
+    delete otpStore[email]
 
     return res.status(400).json({
       success: false,
-      message: "OTP expired. Please request a new OTP.",
-    });
+      message: 'OTP expired. Please request a new OTP.'
+    })
   }
 
   if (savedOtpData.otp !== otp.toString()) {
     return res.status(400).json({
       success: false,
-      message: "Invalid OTP",
-    });
+      message: 'Invalid OTP'
+    })
   }
 
   db.query(
-    "UPDATE users SET password = ? WHERE email = ?",
+    'UPDATE users SET password = ? WHERE email = ?',
     [newPassword, email],
     err => {
       if (err) {
         return res.status(500).json({
           success: false,
-          message: "DB error",
-        });
+          message: 'DB error'
+        })
       }
 
-      delete otpStore[email];
+      delete otpStore[email]
 
       res.json({
         success: true,
-        message: "Password updated successfully",
-      });
+        message: 'Password updated successfully'
+      })
     }
-  );
-});
+  )
+})
 
 // ====================================View All Students========================
-app.get("/all-students", (req, res) => {
+app.get('/all-students', (req, res) => {
   const sql = `
     SELECT 
       u.id,
@@ -698,14 +692,14 @@ app.get("/all-students", (req, res) => {
     FROM users u
     JOIN students s ON u.id = s.user_id
     ORDER BY u.id DESC
-  `;
+  `
 
   db.query(sql, (err, result) => {
-    if (err) return res.status(500).json({ message: err.message });
+    if (err) return res.status(500).json({ message: err.message })
 
-    res.json(result);
-  });
-});
+    res.json(result)
+  })
+})
 
 app.get('/student-requests', (req, res) => {
   const sql = `
@@ -745,9 +739,7 @@ app.get('/student-requests', (req, res) => {
   db.query(sql, async (err, result) => {
     if (err) {
       console.log(err)
-      return res
-        .status(500)
-        .json({ message: 'DB Error' })
+      return res.status(500).json({ message: 'DB Error' })
     }
 
     try {
@@ -761,34 +753,27 @@ app.get('/student-requests', (req, res) => {
               ORDER BY stop_order ASC
             `
 
-            db.query(
-              stopSql,
-              [student.route_id],
-              (err, stops) => {
-                if (err) {
-                  reject(err)
-                } else {
-                  resolve({
-                    ...student,
-                    stops,
-                    status: 'pending',
-                    request_time:
-                      new Date().toLocaleString(),
-                  })
-                }
-              },
-            )
+            db.query(stopSql, [student.route_id], (err, stops) => {
+              if (err) {
+                reject(err)
+              } else {
+                resolve({
+                  ...student,
+                  stops,
+                  status: 'pending',
+                  request_time: new Date().toLocaleString()
+                })
+              }
+            })
           })
-        }),
+        })
       )
 
       res.json(finalData)
     } catch (e) {
       console.log(e)
 
-      res
-        .status(500)
-        .json({ message: 'Server Error' })
+      res.status(500).json({ message: 'Server Error' })
     }
   })
 })
@@ -798,7 +783,7 @@ app.post('/request-transport', (req, res) => {
 
   if (!student_id || !route_id) {
     return res.status(400).json({
-      message: 'Student and route are required',
+      message: 'Student and route are required'
     })
   }
 
@@ -816,14 +801,14 @@ app.post('/request-transport', (req, res) => {
         console.log(err)
 
         return res.status(500).json({
-          message: 'DB Error',
+          message: 'DB Error'
         })
       }
 
       res.json({
-        message: 'Transport request submitted successfully',
+        message: 'Transport request submitted successfully'
       })
-    },
+    }
   )
 })
 
@@ -843,7 +828,7 @@ app.put('/approve-request/:id', (req, res) => {
   db.query(busSql, [route_id], (err, busRes) => {
     if (err) {
       return res.status(500).json({
-        message: 'Bus fetch error',
+        message: 'Bus fetch error'
       })
     }
 
@@ -858,21 +843,17 @@ app.put('/approve-request/:id', (req, res) => {
       WHERE id = ?
     `
 
-    db.query(
-      updateSql,
-      [busId, requestId],
-      err => {
-        if (err) {
-          return res.status(500).json({
-            message: 'Approval failed',
-          })
-        }
-
-        res.json({
-          message: 'Request approved successfully',
+    db.query(updateSql, [busId, requestId], err => {
+      if (err) {
+        return res.status(500).json({
+          message: 'Approval failed'
         })
-      },
-    )
+      }
+
+      res.json({
+        message: 'Request approved successfully'
+      })
+    })
   })
 })
 
@@ -890,14 +871,14 @@ app.put('/reject-request/:id', (req, res) => {
     err => {
       if (err) {
         return res.status(500).json({
-          message: 'Reject failed',
+          message: 'Reject failed'
         })
       }
 
       res.json({
-        message: 'Request rejected',
+        message: 'Request rejected'
       })
-    },
+    }
   )
 })
 
@@ -940,7 +921,7 @@ app.get('/student-approved-route/:studentId', (req, res) => {
   db.query(sql, [studentId], (err, result) => {
     if (err) {
       return res.status(500).json({
-        message: 'DB Error',
+        message: 'DB Error'
       })
     }
 
@@ -961,21 +942,21 @@ app.get('/student-approved-route/:studentId', (req, res) => {
       (err, stops) => {
         if (err) {
           return res.status(500).json({
-            message: 'Stops Error',
+            message: 'Stops Error'
           })
         }
 
         route.stops = stops
 
         res.json(route)
-      },
+      }
     )
   })
 })
 // ================= DEPARTURE ROUTE =================
 
 app.get('/student-departure-route/:studentId', (req, res) => {
-  const { studentId } = req.params;
+  const { studentId } = req.params
 
   const sql = `
     SELECT
@@ -1001,18 +982,18 @@ AND tr.status = 'approved'
 
 ORDER BY tr.id DESC
 LIMIT 1
-  `;
+  `
 
   db.query(sql, [studentId], (err, result) => {
     if (err) {
-      return res.status(500).json({ message: err.message });
+      return res.status(500).json({ message: err.message })
     }
 
     if (result.length === 0) {
-      return res.json(null);
+      return res.json(null)
     }
 
-    const route = result[0];
+    const route = result[0]
 
     // GET STOPS
     db.query(
@@ -1022,7 +1003,7 @@ LIMIT 1
       [route.route_id],
       (err2, stops) => {
         if (err2) {
-          return res.status(500).json({ message: err2.message });
+          return res.status(500).json({ message: err2.message })
         }
 
         // GET DEPARTURE TIMES
@@ -1033,27 +1014,22 @@ LIMIT 1
           [route.route_id],
           (err3, timings) => {
             if (err3) {
-              return res.status(500).json({ message: err3.message });
+              return res.status(500).json({ message: err3.message })
             }
 
-            route.stops = stops;
-            route.timings = timings;
+            route.stops = stops
+            route.timings = timings
 
-            res.json(route);
+            res.json(route)
           }
-        );
+        )
       }
-    );
-  });
-});
+    )
+  })
+})
 
 app.post('/add-complaint', (req, res) => {
-  const {
-    student_id,
-    title,
-    category,
-    description,
-  } = req.body;
+  const { student_id, title, category, description } = req.body
 
   const query = `
     INSERT INTO complaints
@@ -1064,48 +1040,44 @@ app.post('/add-complaint', (req, res) => {
       description
     )
     VALUES (?, ?, ?, ?)
-  `;
+  `
 
-  db.query(
-    query,
-    [student_id, title, category, description],
-    (err, result) => {
-      if (err) {
-        return res.status(500).json({
-          success: false,
-          message: err.message,
-        });
-      }
-
-      res.json({
-        success: true,
-        message: 'Complaint submitted',
-      });
+  db.query(query, [student_id, title, category, description], (err, result) => {
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        message: err.message
+      })
     }
-  );
-});
+
+    res.json({
+      success: true,
+      message: 'Complaint submitted'
+    })
+  })
+})
 
 app.get('/student-complaints/:studentId', (req, res) => {
-  const { studentId } = req.params;
+  const { studentId } = req.params
 
   const query = `
     SELECT *
     FROM complaints
     WHERE student_id = ?
     ORDER BY created_at DESC
-  `;
+  `
 
   db.query(query, [studentId], (err, results) => {
     if (err) {
       return res.status(500).json({
         success: false,
-        message: err.message,
-      });
+        message: err.message
+      })
     }
 
-    res.json(results);
-  });
-});
+    res.json(results)
+  })
+})
 
 app.get('/all-complaints', (req, res) => {
   const query = `
@@ -1123,32 +1095,27 @@ app.get('/all-complaints', (req, res) => {
     ON s.user_id = u.id
 
     ORDER BY c.created_at DESC
-  `;
+  `
 
   db.query(query, (err, results) => {
     if (err) {
       return res.status(500).json({
         success: false,
-        message: err.message,
-      });
+        message: err.message
+      })
     }
 
-    res.json(results);
-  });
-});
+    res.json(results)
+  })
+})
 
 app.post('/save-push-token', (req, res) => {
-  const {
-    user_id,
-    driver_id,
-    role,
-    token,
-  } = req.body
+  const { user_id, driver_id, role, token } = req.body
 
   if (!token) {
     return res.status(400).json({
       success: false,
-      message: 'FCM token is required',
+      message: 'FCM token is required'
     })
   }
 
@@ -1158,7 +1125,7 @@ app.post('/save-push-token', (req, res) => {
     if (!finalDriverId) {
       return res.status(400).json({
         success: false,
-        message: 'Driver id is required',
+        message: 'Driver id is required'
       })
     }
 
@@ -1172,13 +1139,13 @@ app.post('/save-push-token', (req, res) => {
       if (err) {
         return res.status(500).json({
           success: false,
-          message: err.message,
+          message: err.message
         })
       }
 
       return res.json({
         success: true,
-        message: 'Driver push token saved',
+        message: 'Driver push token saved'
       })
     })
 
@@ -1195,24 +1162,19 @@ app.post('/save-push-token', (req, res) => {
     if (err) {
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      message: 'User push token saved',
+      message: 'User push token saved'
     })
   })
 })
 
 app.post('/respond-complaint', async (req, res) => {
-
-  const {
-    complaint_id,
-    response,
-    status,
-  } = req.body;
+  const { complaint_id, response, status } = req.body
 
   const updateQuery = `
     UPDATE complaints
@@ -1220,22 +1182,18 @@ app.post('/respond-complaint', async (req, res) => {
       admin_response = ?,
       status = ?
     WHERE id = ?
-  `;
+  `
 
-  db.query(
-    updateQuery,
-    [response, status, complaint_id],
-    async (err) => {
+  db.query(updateQuery, [response, status, complaint_id], async err => {
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        message: err.message
+      })
+    }
 
-      if (err) {
-        return res.status(500).json({
-          success: false,
-          message: err.message,
-        });
-      }
-
-      // 🔥 GET FCM TOKEN
-      const tokenQuery = `
+    // 🔥 GET FCM TOKEN
+    const tokenQuery = `
         SELECT u.fcm_token
         FROM complaints c
 
@@ -1246,147 +1204,101 @@ app.post('/respond-complaint', async (req, res) => {
         ON s.user_id = u.id
 
         WHERE c.id = ?
-      `;
+      `
 
-      db.query(
-        tokenQuery,
-        [complaint_id],
-        async (err, result) => {
+    db.query(tokenQuery, [complaint_id], async (err, result) => {
+      if (!err && result.length > 0) {
+        const pushToken = result[0].fcm_token
 
-          if (
-            !err &&
-            result.length > 0
-          ) {
+        if (pushToken) {
+          try {
+            console.log('🔥 PUSH TOKEN:', pushToken)
+            // await admin.messaging().send({
 
-            const pushToken =
-              result[0].fcm_token;
+            //   token: pushToken,
 
-            if (pushToken) {
+            //   notification: {
+            //     title:
+            //       'Complaint Update',
 
-              try {
-                console.log('🔥 PUSH TOKEN:', pushToken);
-                // await admin.messaging().send({
+            //     body:
+            //       'Your complaint is registered. Admin will resolve your issue soon.',
+            //   },
 
-                //   token: pushToken,
+            // });
 
-                //   notification: {
-                //     title:
-                //       'Complaint Update',
-
-                //     body:
-                //       'Your complaint is registered. Admin will resolve your issue soon.',
-                //   },
-
-                // });
-
-                console.log(
-                  '🔥 Notification sent'
-                );
-                
-
-              } catch (e) {
-
-                console.log(
-                  'FCM ERROR:',
-                  e
-                );
-              }
-            }
+            console.log('🔥 Notification sent')
+          } catch (e) {
+            console.log('FCM ERROR:', e)
           }
-
-          res.json({
-            success: true,
-            message: 'Response sent',
-          });
         }
-      );
-    }
-  );
-});
-
-app.get('/admin-dashboard-stats', (req, res) => {
-
-  const stats = {};
-
-  db.query(
-    'SELECT COUNT(*) AS total_buses FROM buses',
-    (err, busResult) => {
-
-      if (err) {
-        return res.status(500).json({
-          success: false,
-          error: err.message,
-        });
       }
 
-      stats.total_buses =
-        busResult[0].total_buses;
+      res.json({
+        success: true,
+        message: 'Response sent'
+      })
+    })
+  })
+})
 
-      db.query(
-        'SELECT COUNT(*) AS total_students FROM students',
-        (err, studentResult) => {
+app.get('/admin-dashboard-stats', (req, res) => {
+  const stats = {}
 
-          stats.total_students =
-            studentResult[0].total_students;
+  db.query('SELECT COUNT(*) AS total_buses FROM buses', (err, busResult) => {
+    if (err) {
+      return res.status(500).json({
+        success: false,
+        error: err.message
+      })
+    }
 
-          db.query(
-            'SELECT COUNT(*) AS total_drivers FROM drivers',
-            (err, driverResult) => {
+    stats.total_buses = busResult[0].total_buses
 
-              stats.total_drivers =
-                driverResult[0].total_drivers;
+    db.query(
+      'SELECT COUNT(*) AS total_students FROM students',
+      (err, studentResult) => {
+        stats.total_students = studentResult[0].total_students
 
-              db.query(`SELECT COUNT(*) AS total_complaints
+        db.query(
+          'SELECT COUNT(*) AS total_drivers FROM drivers',
+          (err, driverResult) => {
+            stats.total_drivers = driverResult[0].total_drivers
+
+            db.query(
+              `SELECT COUNT(*) AS total_complaints
                       FROM complaints
                       WHERE status != 'resolved'
                       `,
-                (err, complaintResult) => {
+              (err, complaintResult) => {
+                stats.total_complaints = complaintResult[0].total_complaints
 
-                  stats.total_complaints =
-                    complaintResult[0].total_complaints;
-
-                  res.json({
-                    success: true,
-                    stats,
-                  });
-                }
-              );
-            }
-          );
-        }
-      );
-    }
-  );
-});
+                res.json({
+                  success: true,
+                  stats
+                })
+              }
+            )
+          }
+        )
+      }
+    )
+  })
+})
 
 // ================= ADD DRIVER =================
 
 app.post('/add-driver', (req, res) => {
-  const {
-    name,
-    email,
-    father_name,
-    phone,
-    cnic,
-    joining_date,
-  } = req.body
+  const { name, email, father_name, phone, cnic, joining_date } = req.body
 
-  if (
-    !name ||
-    !email ||
-    !father_name ||
-    !phone ||
-    !cnic ||
-    !joining_date
-  ) {
+  if (!name || !email || !father_name || !phone || !cnic || !joining_date) {
     return res.status(400).json({
       success: false,
-      message: 'Please fill all required fields',
+      message: 'Please fill all required fields'
     })
   }
 
-  const tempPass =
-    Math.random().toString(36).slice(-8)
+  const tempPass = Math.random().toString(36).slice(-8)
 
   const checkQuery = `
     SELECT * FROM drivers
@@ -1395,27 +1307,22 @@ app.post('/add-driver', (req, res) => {
     OR email = ?
   `
 
-  db.query(
-    checkQuery,
-    [cnic, phone, email],
-    (checkErr, checkResult) => {
+  db.query(checkQuery, [cnic, phone, email], (checkErr, checkResult) => {
+    if (checkErr) {
+      return res.status(500).json({
+        success: false,
+        message: checkErr.message
+      })
+    }
 
-      if (checkErr) {
-        return res.status(500).json({
-          success: false,
-          message: checkErr.message,
-        })
-      }
+    if (checkResult.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Driver already exists'
+      })
+    }
 
-      if (checkResult.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'Driver already exists',
-        })
-      }
-
-      const insertQuery = `
+    const insertQuery = `
         INSERT INTO drivers (
           name,
           email,
@@ -1430,40 +1337,37 @@ app.post('/add-driver', (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
 
-      db.query(
-        insertQuery,
-        [
-          name,
-          email,
-          father_name,
-          phone,
-          cnic,
-          joining_date,
-          tempPass,
-          'driver',
-          1,
-        ],
-        (err, result) => {
+    db.query(
+      insertQuery,
+      [
+        name,
+        email,
+        father_name,
+        phone,
+        cnic,
+        joining_date,
+        tempPass,
+        'driver',
+        1
+      ],
+      (err, result) => {
+        if (err) {
+          return res.status(500).json({
+            success: false,
+            message: err.message
+          })
+        }
 
-          if (err) {
-            return res.status(500).json({
-              success: false,
-              message: err.message,
-            })
-          }
+        // SEND EMAIL
+        transporter.sendMail(
+          {
+            from: 'haseeb.ahmed20035@gmail.com',
 
-          // SEND EMAIL
-          transporter.sendMail(
-            {
-              from:
-                'haseeb.ahmed20035@gmail.com',
+            to: email,
 
-              to: email,
+            subject: 'Driver Account Created 🚍',
 
-              subject:
-                'Driver Account Created 🚍',
-
-              html: `
+            html: `
                 <h2>🚍 UOL Transportation System</h2>
 
                 <p>Hello <b>${name}</b>,</p>
@@ -1485,41 +1389,32 @@ app.post('/add-driver', (req, res) => {
                 </p>
                 <p>You can change password from "My Personal Info"</p>
 
-              `,
-            },
+              `
+          },
 
-            mailErr => {
+          mailErr => {
+            if (mailErr) {
+              console.log('MAIL ERROR:', mailErr)
+            } else {
+              console.log('DRIVER MAIL SENT')
+            }
+          }
+        )
 
-              if (mailErr) {
-                console.log(
-                  'MAIL ERROR:',
-                  mailErr
-                )
-              } else {
-                console.log(
-                  'DRIVER MAIL SENT'
-                )
-              }
-            },
-          )
-
-          return res.status(200).json({
-            success: true,
-            message:
-              'Driver added successfully',
-            driver_id: result.insertId,
-          })
-        },
-      )
-    },
-  )
+        return res.status(200).json({
+          success: true,
+          message: 'Driver added successfully',
+          driver_id: result.insertId
+        })
+      }
+    )
+  })
 })
 
 // ================= DELETE DRIVER =================
 
 app.delete('/delete-driver/:id', (req, res) => {
-
-  const driverId = req.params.id;
+  const driverId = req.params.id
 
   // REMOVE DRIVER FROM BUSES
   const updateBusQuery = `
@@ -1528,47 +1423,35 @@ app.delete('/delete-driver/:id', (req, res) => {
       driver_id = NULL,
       driver_name = NULL
     WHERE driver_id = ?
-  `;
+  `
 
-  db.query(
-    updateBusQuery,
-    [driverId],
-    (updateErr) => {
+  db.query(updateBusQuery, [driverId], updateErr => {
+    if (updateErr) {
+      return res.status(500).json({
+        success: false,
+        message: updateErr.message
+      })
+    }
 
-      if (updateErr) {
+    // DELETE DRIVER
+    db.query('DELETE FROM drivers WHERE id = ?', [driverId], deleteErr => {
+      if (deleteErr) {
         return res.status(500).json({
           success: false,
-          message: updateErr.message,
-        });
+          message: deleteErr.message
+        })
       }
 
-      // DELETE DRIVER
-      db.query(
-        'DELETE FROM drivers WHERE id = ?',
-        [driverId],
-        (deleteErr) => {
-
-          if (deleteErr) {
-            return res.status(500).json({
-              success: false,
-              message: deleteErr.message,
-            });
-          }
-
-          res.json({
-            success: true,
-            message:
-              'Driver deleted successfully',
-          });
-        }
-      );
-    }
-  );
-});
+      res.json({
+        success: true,
+        message: 'Driver deleted successfully'
+      })
+    })
+  })
+})
 // ================= ALL DRIVERS =================
 
 app.get('/all-drivers', (req, res) => {
-
   const sql = `
     SELECT
       d.id,
@@ -1589,26 +1472,24 @@ app.get('/all-drivers', (req, res) => {
     ON d.id = b.driver_id
 
     ORDER BY d.id DESC
-  `;
+  `
 
   db.query(sql, (err, result) => {
-
     if (err) {
       return res.status(500).json({
         success: false,
-        message: err.message,
-      });
+        message: err.message
+      })
     }
 
-    res.json(result);
-  });
-});
+    res.json(result)
+  })
+})
 
 // ================= DRIVER PERSONAL INFO =================
 
 app.get('/driver/:id', (req, res) => {
-
-  const driverId = req.params.id;
+  const driverId = req.params.id
 
   const sql = `
     SELECT
@@ -1622,30 +1503,29 @@ app.get('/driver/:id', (req, res) => {
       is_available
     FROM drivers
     WHERE id = ?
-  `;
+  `
 
   db.query(sql, [driverId], (err, result) => {
-
     if (err) {
       return res.status(500).json({
         success: false,
-        message: err.message,
-      });
+        message: err.message
+      })
     }
 
     if (result.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Driver not found',
-      });
+        message: 'Driver not found'
+      })
     }
 
-    res.json(result[0]);
-  });
-});
+    res.json(result[0])
+  })
+})
 
 app.get('/driver/my-route/:driverId', (req, res) => {
-  const { driverId } = req.params;
+  const { driverId } = req.params
 
   const query = `
     SELECT 
@@ -1675,36 +1555,36 @@ app.get('/driver/my-route/:driverId', (req, res) => {
     LEFT JOIN route_stops rs ON r.id = rs.route_id
     WHERE d.id = ?
     ORDER BY rs.stop_order ASC
-  `;
+  `
 
   db.query(query, [driverId], (err, results) => {
     if (err) {
-      console.log('Driver my route error:', err);
+      console.log('Driver my route error:', err)
       return res.status(500).json({
         success: false,
-        message: 'Failed to fetch driver route',
-      });
+        message: 'Failed to fetch driver route'
+      })
     }
 
     if (!results.length || !results[0].route_id) {
       return res.status(404).json({
         success: false,
-        message: 'No route assigned to this driver',
-      });
+        message: 'No route assigned to this driver'
+      })
     }
 
-    const first = results[0];
+    const first = results[0]
 
     const routeData = {
       driver: {
         id: first.driver_id,
-        name: first.driver_name,
+        name: first.driver_name
       },
       bus: {
         id: first.bus_id,
         bus_number: first.bus_number,
         capacity: first.capacity,
-        status: first.bus_status,
+        status: first.bus_status
       },
       route: {
         id: first.route_id,
@@ -1719,39 +1599,33 @@ app.get('/driver/my-route/:driverId', (req, res) => {
             stop_name: row.stop_name,
             latitude: row.latitude,
             longitude: row.longitude,
-            stop_order: row.stop_order,
-          })),
-      },
-    };
+            stop_order: row.stop_order
+          }))
+      }
+    }
 
     res.json({
       success: true,
-      data: routeData,
-    });
-  });
-});
+      data: routeData
+    })
+  })
+})
 
 // ================= TRIP CONTROL / LIVE TRACKING =================
 
 app.post('/start-trip', (req, res) => {
-  const {
-    driver_id,
-    bus_id,
-    route_id,
-    latitude,
-    longitude,
-  } = req.body
+  const { driver_id, bus_id, route_id, latitude, longitude } = req.body
 
   if (
-  !driver_id ||
-  !bus_id ||
-  !route_id ||
-  latitude === undefined ||
-  longitude === undefined
-) {
+    !driver_id ||
+    !bus_id ||
+    !route_id ||
+    latitude === undefined ||
+    longitude === undefined
+  ) {
     return res.status(400).json({
       success: false,
-      message: 'Required trip data missing',
+      message: 'Required trip data missing'
     })
   }
 
@@ -1761,46 +1635,41 @@ app.post('/start-trip', (req, res) => {
     VALUES (?, ?, ?, ?, ?, 'running')
   `
 
-  db.query(
-    sql,
-    [bus_id, driver_id, route_id, latitude, longitude],
-    err => {
-      if (err) {
-        console.log('START TRIP ERROR:', err)
-        return res.status(500).json({
-          success: false,
-          message: err.message,
-        })
-      }
-
-      db.query(
-        `UPDATE buses SET status = 'running' WHERE id = ?`,
-        [bus_id]
-      )
-
-      res.json({
-        success: true,
-        message: 'Trip started successfully',
+  db.query(sql, [bus_id, driver_id, route_id, latitude, longitude], err => {
+    if (err) {
+      console.log('START TRIP ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message
       })
     }
-  )
+
+    db.query(`UPDATE buses SET status = 'running' WHERE id = ?`, [bus_id])
+
+    res.json({
+      success: true,
+      message: 'Trip started successfully'
+    })
+  })
 })
 
 app.post('/update-bus-location', (req, res) => {
-  const {
-    driver_id,
-    bus_id,
-    route_id,
-    latitude,
-    longitude,
-  } = req.body
+  const { driver_id, bus_id, route_id, latitude, longitude } = req.body
 
-  if (!driver_id ||!bus_id || !route_id || latitude === undefined || longitude === undefined || latitude === null ||longitude === null) {
-  return res.status(400).json({
-    success: false,
-    message: 'Location data missing',
-  })
-}
+  if (
+    !driver_id ||
+    !bus_id ||
+    !route_id ||
+    latitude === undefined ||
+    longitude === undefined ||
+    latitude === null ||
+    longitude === null
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Location data missing'
+    })
+  }
 
   const sql = `
     INSERT INTO bus_live_locations
@@ -1808,31 +1677,27 @@ app.post('/update-bus-location', (req, res) => {
     VALUES (?, ?, ?, ?, ?, 'running')
   `
 
-  db.query(
-    sql,
-    [bus_id, driver_id, route_id, latitude, longitude],
-    err => {
-      if (err) {
-        console.log('UPDATE BUS LOCATION ERROR:', err)
-        return res.status(500).json({
-          success: false,
-          message: err.message,
-        })
-      }
-
-      checkBusDelayAndArrivalAndNotifyStudents(
-  bus_id,
-  route_id,
-  latitude,
-  longitude,
-)
-
-      res.json({
-        success: true,
-        message: 'Location updated',
+  db.query(sql, [bus_id, driver_id, route_id, latitude, longitude], err => {
+    if (err) {
+      console.log('UPDATE BUS LOCATION ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: err.message
       })
     }
-  )
+
+    checkBusDelayAndArrivalAndNotifyStudents(
+      bus_id,
+      route_id,
+      latitude,
+      longitude
+    )
+
+    res.json({
+      success: true,
+      message: 'Location updated'
+    })
+  })
 })
 
 app.post('/end-trip', (req, res) => {
@@ -1841,7 +1706,7 @@ app.post('/end-trip', (req, res) => {
   if (!driver_id || !bus_id || !route_id) {
     return res.status(400).json({
       success: false,
-      message: 'Trip data missing',
+      message: 'Trip data missing'
     })
   }
 
@@ -1861,18 +1726,15 @@ app.post('/end-trip', (req, res) => {
         console.log('END TRIP ERROR:', err)
         return res.status(500).json({
           success: false,
-          message: err.message,
+          message: err.message
         })
       }
 
-      db.query(
-        `UPDATE buses SET status = 'active' WHERE id = ?`,
-        [bus_id]
-      )
+      db.query(`UPDATE buses SET status = 'active' WHERE id = ?`, [bus_id])
 
       res.json({
         success: true,
-        message: 'Trip ended successfully',
+        message: 'Trip ended successfully'
       })
     }
   )
@@ -1919,13 +1781,13 @@ app.get('/admin/running-buses', (req, res) => {
     if (err) {
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      buses: result,
+      buses: result
     })
   })
 })
@@ -1988,7 +1850,7 @@ app.get('/student/live-bus/:studentId', (req, res) => {
       console.log('STUDENT LIVE BUS ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
@@ -1998,7 +1860,7 @@ app.get('/student/live-bus/:studentId', (req, res) => {
         message: 'No running bus found',
         bus: null,
         studentStop: null,
-        routeStops: [],
+        routeStops: []
       })
     }
 
@@ -2021,7 +1883,7 @@ app.get('/student/live-bus/:studentId', (req, res) => {
         console.log('LIVE BUS STOPS ERROR:', stopErr)
         return res.status(500).json({
           success: false,
-          message: stopErr.message,
+          message: stopErr.message
         })
       }
 
@@ -2035,7 +1897,7 @@ app.get('/student/live-bus/:studentId', (req, res) => {
         success: true,
         bus,
         studentStop,
-        routeStops: formattedStops,
+        routeStops: formattedStops
       })
     })
   })
@@ -2063,7 +1925,7 @@ const sendPushNotification = async ({
   title,
   body,
   type = 'general',
-  data = {},
+  data = {}
 }) => {
   if (!token) return false
 
@@ -2073,7 +1935,7 @@ const sendPushNotification = async ({
 
       notification: {
         title,
-        body,
+        body
       },
 
       data: {
@@ -2081,19 +1943,16 @@ const sendPushNotification = async ({
         body: String(body),
         type: String(type),
         ...Object.fromEntries(
-          Object.entries(data).map(([key, value]) => [
-            key,
-            String(value ?? ''),
-          ]),
-        ),
+          Object.entries(data).map(([key, value]) => [key, String(value ?? '')])
+        )
       },
 
       android: {
         priority: 'high',
         notification: {
-          channelId: 'uol_transport_alerts',
-        },
-      },
+          channelId: 'uol_transport_alerts'
+        }
+      }
     })
 
     return true
@@ -2103,12 +1962,7 @@ const sendPushNotification = async ({
   }
 }
 
-const hasAlreadySentBusAlert = ({
-  busId,
-  routeId,
-  studentId,
-  alertType,
-}) => {
+const hasAlreadySentBusAlert = ({ busId, routeId, studentId, alertType }) => {
   return new Promise(resolve => {
     const query = `
       SELECT id
@@ -2121,27 +1975,18 @@ const hasAlreadySentBusAlert = ({
       LIMIT 1
     `
 
-    db.query(
-      query,
-      [busId, routeId, studentId, alertType],
-      (err, rows) => {
-        if (err) {
-          console.log('CHECK BUS ALERT ERROR:', err)
-          return resolve(true)
-        }
+    db.query(query, [busId, routeId, studentId, alertType], (err, rows) => {
+      if (err) {
+        console.log('CHECK BUS ALERT ERROR:', err)
+        return resolve(true)
+      }
 
-        resolve(rows.length > 0)
-      },
-    )
+      resolve(rows.length > 0)
+    })
   })
 }
 
-const markBusAlertSent = ({
-  busId,
-  routeId,
-  studentId,
-  alertType,
-}) => {
+const markBusAlertSent = ({ busId, routeId, studentId, alertType }) => {
   return new Promise(resolve => {
     const query = `
       INSERT IGNORE INTO bus_student_alerts
@@ -2149,18 +1994,14 @@ const markBusAlertSent = ({
       VALUES (?, ?, ?, ?, CURDATE())
     `
 
-    db.query(
-      query,
-      [busId, routeId, studentId, alertType],
-      err => {
-        if (err) {
-          console.log('MARK BUS ALERT ERROR:', err)
-          return resolve(false)
-        }
+    db.query(query, [busId, routeId, studentId, alertType], err => {
+      if (err) {
+        console.log('MARK BUS ALERT ERROR:', err)
+        return resolve(false)
+      }
 
-        resolve(true)
-      },
-    )
+      resolve(true)
+    })
   })
 }
 
@@ -2186,11 +2027,7 @@ const getTripElapsedMinutes = ({ busId, routeId }) => {
   })
 }
 
-const saveStudentSystemNotification = ({
-  userId,
-  title,
-  message,
-}) => {
+const saveStudentSystemNotification = ({ userId, title, message }) => {
   return new Promise(resolve => {
     const insertNotificationQuery = `
       INSERT INTO admin_notifications
@@ -2225,9 +2062,9 @@ const saveStudentSystemNotification = ({
             }
 
             resolve(true)
-          },
+          }
         )
-      },
+      }
     )
   })
 }
@@ -2236,11 +2073,11 @@ const checkBusDelayAndArrivalAndNotifyStudents = async (
   busId,
   routeId,
   busLat,
-  busLng,
+  busLng
 ) => {
   const elapsedMinutes = await getTripElapsedMinutes({
     busId,
-    routeId,
+    routeId
   })
 
   const delayThresholdMinutes = 35
@@ -2298,13 +2135,12 @@ const checkBusDelayAndArrivalAndNotifyStudents = async (
           busId,
           routeId,
           studentId,
-          alertType: 'delay',
+          alertType: 'delay'
         })
 
         if (!alreadyDelaySent) {
           const title = 'Bus Delayed'
-          const body =
-            'Sorry for the delay. Your bus is arriving soon.'
+          const body = 'Sorry for the delay. Your bus is arriving soon.'
 
           await sendPushNotification({
             token: student.fcm_token,
@@ -2314,21 +2150,21 @@ const checkBusDelayAndArrivalAndNotifyStudents = async (
             data: {
               bus_id: busId,
               route_id: routeId,
-              elapsed_minutes: elapsedMinutes,
-            },
+              elapsed_minutes: elapsedMinutes
+            }
           })
 
           await saveStudentSystemNotification({
             userId,
             title,
-            message: body,
+            message: body
           })
 
           await markBusAlertSent({
             busId,
             routeId,
             studentId,
-            alertType: 'delay',
+            alertType: 'delay'
           })
         }
       }
@@ -2337,7 +2173,7 @@ const checkBusDelayAndArrivalAndNotifyStudents = async (
         Number(busLat),
         Number(busLng),
         Number(student.latitude),
-        Number(student.longitude),
+        Number(student.longitude)
       )
 
       if (distance <= arrivalDistanceMeters) {
@@ -2345,7 +2181,7 @@ const checkBusDelayAndArrivalAndNotifyStudents = async (
           busId,
           routeId,
           studentId,
-          alertType: 'arrived',
+          alertType: 'arrived'
         })
 
         if (!alreadyArrivalSent) {
@@ -2361,21 +2197,21 @@ const checkBusDelayAndArrivalAndNotifyStudents = async (
               bus_id: busId,
               route_id: routeId,
               stop_name: student.stop_name,
-              distance_meters: Math.round(distance),
-            },
+              distance_meters: Math.round(distance)
+            }
           })
 
           await saveStudentSystemNotification({
             userId,
             title,
-            message: body,
+            message: body
           })
 
           await markBusAlertSent({
             busId,
             routeId,
             studentId,
-            alertType: 'arrived',
+            alertType: 'arrived'
           })
         }
       }
@@ -2386,17 +2222,12 @@ const checkBusDelayAndArrivalAndNotifyStudents = async (
 // ================= ADMIN SEND NOTIFICATION =================
 
 app.post('/admin/send-notification', async (req, res) => {
-  const {
-    title,
-    message,
-    target_role,
-    created_by,
-  } = req.body
+  const { title, message, target_role, created_by } = req.body
 
   if (!title || !message || !target_role) {
     return res.status(400).json({
       success: false,
-      message: 'Title, message and target role are required',
+      message: 'Title, message and target role are required'
     })
   }
 
@@ -2405,7 +2236,7 @@ app.post('/admin/send-notification', async (req, res) => {
   if (!allowedRoles.includes(target_role)) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid target role',
+      message: 'Invalid target role'
     })
   }
 
@@ -2424,7 +2255,7 @@ app.post('/admin/send-notification', async (req, res) => {
 
         return res.status(500).json({
           success: false,
-          message: err.message,
+          message: err.message
         })
       }
 
@@ -2490,7 +2321,7 @@ app.post('/admin/send-notification', async (req, res) => {
         if (studentErr) {
           return res.status(500).json({
             success: false,
-            message: studentErr.message,
+            message: studentErr.message
           })
         }
 
@@ -2498,22 +2329,23 @@ app.post('/admin/send-notification', async (req, res) => {
           if (driverErr) {
             return res.status(500).json({
               success: false,
-              message: driverErr.message,
+              message: driverErr.message
             })
           }
 
           if (receivers.length === 0) {
             return res.json({
               success: true,
-              message: 'Notification saved, but no users found for selected role',
-              notification_id: notificationId,
+              message:
+                'Notification saved, but no users found for selected role',
+              notification_id: notificationId
             })
           }
 
           const insertValues = receivers.map(user => [
             notificationId,
             user.notification_user_id,
-            0,
+            0
           ])
 
           const insertUserNotificationQuery = `
@@ -2534,7 +2366,7 @@ app.post('/admin/send-notification', async (req, res) => {
 
                 return res.status(500).json({
                   success: false,
-                  message: userNotificationErr.message,
+                  message: userNotificationErr.message
                 })
               }
 
@@ -2544,24 +2376,24 @@ app.post('/admin/send-notification', async (req, res) => {
               let failedCount = 0
 
               for (const user of usersWithToken) {
-  const sent = await sendPushNotification({
-    token: user.fcm_token,
-    title,
-    body: message,
-    type: 'admin_notification',
-    data: {
-      notification_id: notificationId,
-      target_role,
-      receiver_id: user.notification_user_id,
-    },
-  })
+                const sent = await sendPushNotification({
+                  token: user.fcm_token,
+                  title,
+                  body: message,
+                  type: 'admin_notification',
+                  data: {
+                    notification_id: notificationId,
+                    target_role,
+                    receiver_id: user.notification_user_id
+                  }
+                })
 
-  if (sent) {
-    sentCount++
-  } else {
-    failedCount++
-  }
-}
+                if (sent) {
+                  sentCount++
+                } else {
+                  failedCount++
+                }
+              }
 
               return res.json({
                 success: true,
@@ -2569,7 +2401,7 @@ app.post('/admin/send-notification', async (req, res) => {
                 notification_id: notificationId,
                 total_users: receivers.length,
                 push_sent: sentCount,
-                push_failed: failedCount,
+                push_failed: failedCount
               })
             }
           )
@@ -2578,7 +2410,6 @@ app.post('/admin/send-notification', async (req, res) => {
     }
   )
 })
-
 
 // ================= GET USER NOTIFICATIONS =================
 
@@ -2610,17 +2441,16 @@ app.get('/user-notifications/:userId', (req, res) => {
 
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      notifications: result,
+      notifications: result
     })
   })
 })
-
 
 // ================= MARK NOTIFICATION READ =================
 
@@ -2639,17 +2469,16 @@ app.put('/user-notifications/read/:id', (req, res) => {
 
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      message: 'Notification marked as read',
+      message: 'Notification marked as read'
     })
   })
 })
-
 
 // ================= UNREAD NOTIFICATION COUNT =================
 
@@ -2669,13 +2498,13 @@ app.get('/user-notifications/unread-count/:userId', (req, res) => {
 
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      unread_count: result[0].unread_count,
+      unread_count: result[0].unread_count
     })
   })
 })
@@ -2686,7 +2515,7 @@ app.delete('/clear-user-notifications/:userId', (req, res) => {
   if (!userId) {
     return res.status(400).json({
       success: false,
-      message: 'User id is required',
+      message: 'User id is required'
     })
   }
 
@@ -2700,14 +2529,14 @@ app.delete('/clear-user-notifications/:userId', (req, res) => {
       console.log('Clear notifications error:', err)
       return res.status(500).json({
         success: false,
-        message: 'Failed to clear notifications',
+        message: 'Failed to clear notifications'
       })
     }
 
     return res.json({
       success: true,
       message: 'Notifications cleared successfully',
-      deletedCount: result.affectedRows,
+      deletedCount: result.affectedRows
     })
   })
 })
@@ -2719,14 +2548,14 @@ const billingCycleLabels = {
   monthly: 'Monthly',
   quarterly: 'Quarterly',
   six_months: '6 Months',
-  yearly: 'Yearly',
+  yearly: 'Yearly'
 }
 
 const billingCycleMultipliers = {
   monthly: 1,
   quarterly: 3,
   six_months: 6,
-  yearly: 12,
+  yearly: 12
 }
 
 const calculateFeeAmounts = (baseAmount, billingCycle) => {
@@ -2739,7 +2568,7 @@ const calculateFeeAmounts = (baseAmount, billingCycle) => {
   return {
     subtotal: Number(subtotal.toFixed(2)),
     tax: Number(tax.toFixed(2)),
-    total: Number(total.toFixed(2)),
+    total: Number(total.toFixed(2))
   }
 }
 
@@ -2764,7 +2593,7 @@ const sendMailSafe = ({ to, subject, html }) => {
         from: 'haseeb.ahmed20035@gmail.com',
         to,
         subject,
-        html,
+        html
       },
       err => {
         if (err) {
@@ -2784,7 +2613,7 @@ const getFeeVoucherEmailHtml = ({
   title,
   amount,
   dueDate,
-  message,
+  message
 }) => {
   return `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
@@ -2818,12 +2647,7 @@ const getFeeVoucherEmailHtml = ({
   `
 }
 
-const getFeeReminderEmailHtml = ({
-  studentName,
-  title,
-  amount,
-  dueDate,
-}) => {
+const getFeeReminderEmailHtml = ({ studentName, title, amount, dueDate }) => {
   return `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
       <h2>🚨 Fee Payment Reminder</h2>
@@ -2864,13 +2688,13 @@ app.get('/fee/students', (req, res) => {
       console.log('FEE STUDENTS ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      students: result,
+      students: result
     })
   })
 })
@@ -2878,26 +2702,29 @@ app.get('/fee/students', (req, res) => {
 // Admin: send fee voucher to all or selected students
 app.post('/fee/send-vouchers', (req, res) => {
   const {
-  title,
-  amount,
-  due_date,
-  message,
-  send_to_all,
-  student_ids,
-  created_by,
-} = req.body
+    title,
+    amount,
+    due_date,
+    message,
+    send_to_all,
+    student_ids,
+    created_by
+  } = req.body
 
   if (!title || !amount || !due_date) {
-  return res.status(400).json({
-    success: false,
-    message: 'Title, amount and due date are required',
-  })
-}
-
-  if (!send_to_all && (!Array.isArray(student_ids) || student_ids.length === 0)) {
     return res.status(400).json({
       success: false,
-      message: 'Please select at least one student',
+      message: 'Title, amount and due date are required'
+    })
+  }
+
+  if (
+    !send_to_all &&
+    (!Array.isArray(student_ids) || student_ids.length === 0)
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please select at least one student'
     })
   }
 
@@ -2909,19 +2736,13 @@ app.post('/fee/send-vouchers', (req, res) => {
 
   db.query(
     insertVoucherSql,
-    [
-      title,
-      Number(amount),
-      due_date,
-      message || null,
-      created_by || null,
-    ],
+    [title, Number(amount), due_date, message || null, created_by || null],
     (voucherErr, voucherResult) => {
       if (voucherErr) {
         console.log('CREATE FEE VOUCHER ERROR:', voucherErr)
         return res.status(500).json({
           success: false,
-          message: voucherErr.message,
+          message: voucherErr.message
         })
       }
 
@@ -2952,21 +2773,21 @@ app.post('/fee/send-vouchers', (req, res) => {
           console.log('FETCH VOUCHER STUDENTS ERROR:', studentsErr)
           return res.status(500).json({
             success: false,
-            message: studentsErr.message,
+            message: studentsErr.message
           })
         }
 
         if (!students.length) {
           return res.status(404).json({
             success: false,
-            message: 'No students found',
+            message: 'No students found'
           })
         }
 
         const values = students.map(student => [
           voucherId,
           student.student_id,
-          'unpaid',
+          'unpaid'
         ])
 
         const assignSql = `
@@ -2980,29 +2801,40 @@ app.post('/fee/send-vouchers', (req, res) => {
             console.log('ASSIGN VOUCHER ERROR:', assignErr)
             return res.status(500).json({
               success: false,
-              message: assignErr.message,
+              message: assignErr.message
             })
           }
-
-          for (const student of students) {
-            await sendMailSafe({
-              to: student.email,
-              subject: `Fee Voucher Issued - ${title}`,
-              html: getFeeVoucherEmailHtml({
-              studentName: student.name,
-              title,
-              amount,
-              dueDate: due_date,
-              message,
-            }),
-            })
-          }
-
           res.json({
             success: true,
-            message: `Fee voucher sent to ${students.length} student(s)`,
+            message: `Fee voucher created for ${students.length} student(s). Emails are sending in background.`,
             voucher_id: voucherId,
-            total_students: students.length,
+            total_students: students.length
+          })
+
+          setImmediate(async () => {
+            let sentCount = 0
+            let failedCount = 0
+
+            for (const student of students) {
+              const sent = await sendMailSafe({
+                to: student.email,
+                subject: `Fee Voucher Issued - ${title}`,
+                html: getFeeVoucherEmailHtml({
+                  studentName: student.name,
+                  title,
+                  amount,
+                  dueDate: due_date,
+                  message
+                })
+              })
+
+              if (sent) sentCount++
+              else failedCount++
+            }
+
+            console.log(
+              `FEE VOUCHER EMAILS DONE: sent=${sentCount}, failed=${failedCount}`
+            )
           })
         })
       })
@@ -3037,13 +2869,13 @@ app.get('/fee/admin-vouchers', (req, res) => {
       console.log('ADMIN FEE VOUCHERS ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      vouchers: result,
+      vouchers: result
     })
   })
 })
@@ -3091,13 +2923,13 @@ app.get('/fee/voucher-students/:voucherId', (req, res) => {
       console.log('VOUCHER STUDENTS ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      students: result,
+      students: result
     })
   })
 })
@@ -3136,13 +2968,13 @@ app.get('/fee/student-vouchers/:studentId', (req, res) => {
       console.log('STUDENT FEE VOUCHERS ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     res.json({
       success: true,
-      vouchers: result,
+      vouchers: result
     })
   })
 })
@@ -3157,7 +2989,7 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
   if (!allowedCycles.includes(billing_cycle)) {
     return res.status(400).json({
       success: false,
-      message: 'Please select a valid payment plan',
+      message: 'Please select a valid payment plan'
     })
   }
 
@@ -3183,14 +3015,14 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
       console.log('PAYMENT FETCH ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     if (!rows.length) {
       return res.status(404).json({
         success: false,
-        message: 'Voucher not found',
+        message: 'Voucher not found'
       })
     }
 
@@ -3199,13 +3031,15 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
     if (voucher.status === 'paid') {
       return res.status(400).json({
         success: false,
-        message: 'This voucher is already paid',
+        message: 'This voucher is already paid'
       })
     }
 
     const amounts = calculateFeeAmounts(voucher.amount, billing_cycle)
 
-    const transactionRef = `FEE-${Date.now()}-${Math.floor(Math.random() * 100000)}`
+    const transactionRef = `FEE-${Date.now()}-${Math.floor(
+      Math.random() * 100000
+    )}`
 
     const insertPaymentSql = `
       INSERT INTO fee_payments
@@ -3239,14 +3073,14 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
         amounts.total,
         transactionRef,
         process.env.PAYMENT_MODE || 'demo',
-        payment_method || 'hosted_checkout',
+        payment_method || 'hosted_checkout'
       ],
       paymentErr => {
         if (paymentErr) {
           console.log('CREATE PAYMENT ERROR:', paymentErr)
           return res.status(500).json({
             success: false,
-            message: paymentErr.message,
+            message: paymentErr.message
           })
         }
 
@@ -3267,14 +3101,14 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
             amounts.subtotal,
             amounts.tax,
             amounts.total,
-            voucher.voucher_student_id,
+            voucher.voucher_student_id
           ],
           selectionErr => {
             if (selectionErr) {
               console.log('SAVE SELECTED PLAN ERROR:', selectionErr)
               return res.status(500).json({
                 success: false,
-                message: selectionErr.message,
+                message: selectionErr.message
               })
             }
 
@@ -3288,7 +3122,7 @@ app.post('/fee/voucher/:voucherStudentId/pay', (req, res) => {
               billing_cycle,
               subtotal_amount: amounts.subtotal,
               tax_amount: amounts.tax,
-              total_amount: amounts.total,
+              total_amount: amounts.total
             })
           }
         )
@@ -3351,9 +3185,9 @@ app.get('/fee/demo-payment-success/:transactionRef', (req, res) => {
           JSON.stringify({
             mode: 'demo',
             status: 'paid',
-            transaction_ref: transactionRef,
+            transaction_ref: transactionRef
           }),
-          transactionRef,
+          transactionRef
         ],
         payErr => {
           if (payErr) {
@@ -3375,29 +3209,29 @@ app.get('/fee/demo-payment-success/:transactionRef', (req, res) => {
           `
 
           db.query(
-          updateVoucherSql,
-          [
-            payment.selected_billing_cycle,
-            payment.subtotal_amount,
-            payment.tax_amount,
-            payment.total_amount,
-            payment.voucher_student_id,
-          ],
-          voucherErr => {
-            if (voucherErr) {
-              return db.rollback(() => {
-                res.status(500).send('Voucher update failed')
-              })
-            }
-
-            db.commit(commitErr => {
-              if (commitErr) {
+            updateVoucherSql,
+            [
+              payment.selected_billing_cycle,
+              payment.subtotal_amount,
+              payment.tax_amount,
+              payment.total_amount,
+              payment.voucher_student_id
+            ],
+            voucherErr => {
+              if (voucherErr) {
                 return db.rollback(() => {
-                  res.status(500).send('Commit failed')
+                  res.status(500).send('Voucher update failed')
                 })
               }
 
-              res.send(`
+              db.commit(commitErr => {
+                if (commitErr) {
+                  return db.rollback(() => {
+                    res.status(500).send('Commit failed')
+                  })
+                }
+
+                res.send(`
                 <html>
                   <body style="font-family:Arial;text-align:center;padding:40px;">
                     <h2 style="color:green;">Payment Successful</h2>
@@ -3406,8 +3240,9 @@ app.get('/fee/demo-payment-success/:transactionRef', (req, res) => {
                   </body>
                 </html>
               `)
-            })
-          })
+              })
+            }
+          )
         }
       )
     })
@@ -3416,20 +3251,20 @@ app.get('/fee/demo-payment-success/:transactionRef', (req, res) => {
 
 // Admin: manually send reminders
 app.post('/fee/send-reminders', (req, res) => {
-  sendFeeReminders()
-    .then(count => {
-      res.json({
-        success: true,
-        message: `Reminder emails sent to ${count} unpaid student(s)`,
+  res.json({
+    success: true,
+    message: 'Reminder process started. Emails are sending in background.'
+  })
+
+  setImmediate(() => {
+    sendFeeReminders()
+      .then(count => {
+        console.log(`REMINDER EMAILS DONE: sent=${count}`)
       })
-    })
-    .catch(error => {
-      console.log('SEND REMINDERS ERROR:', error)
-      res.status(500).json({
-        success: false,
-        message: error.message,
+      .catch(error => {
+        console.log('SEND REMINDERS BACKGROUND ERROR:', error)
       })
-    })
+  })
 })
 
 const sendFeeReminders = () => {
@@ -3475,8 +3310,8 @@ const sendFeeReminders = () => {
             studentName: row.student_name,
             title: row.title,
             amount: row.amount,
-            dueDate: row.due_date,
-          }),
+            dueDate: row.due_date
+          })
         })
 
         if (sent) {
@@ -3585,23 +3420,20 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
       console.log('PDF VOUCHER FETCH ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     if (!rows.length) {
       return res.status(404).json({
         success: false,
-        message: 'Voucher not found',
+        message: 'Voucher not found'
       })
     }
 
     const data = rows[0]
 
-    let finalCycle =
-      data.selected_billing_cycle ||
-      requestedCycle ||
-      'monthly'
+    let finalCycle = data.selected_billing_cycle || requestedCycle || 'monthly'
 
     if (!allowedCycles.includes(finalCycle)) {
       finalCycle = 'monthly'
@@ -3615,9 +3447,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         : calculated.subtotal
 
     const tax =
-      Number(data.tax_amount) > 0
-        ? Number(data.tax_amount)
-        : calculated.tax
+      Number(data.tax_amount) > 0 ? Number(data.tax_amount) : calculated.tax
 
     const total =
       Number(data.total_amount) > 0
@@ -3636,29 +3466,24 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         console.log('PDF STOPS ERROR:', stopsErr)
         return res.status(500).json({
           success: false,
-          message: stopsErr.message,
+          message: stopsErr.message
         })
       }
 
       const fileName = `UOL-Fee-Voucher-${data.reg_no || data.student_id}.pdf`
 
       res.setHeader('Content-Type', 'application/pdf')
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${fileName}"`
-      )
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
 
       const doc = new PDFDocument({
         size: 'A4',
-        margin: 45,
+        margin: 45
       })
 
       doc.pipe(res)
 
       // Header background
-      doc
-        .rect(0, 0, 595, 115)
-        .fill('#175812')
+      doc.rect(0, 0, 595, 115).fill('#175812')
 
       doc
         .fillColor('#FFFFFF')
@@ -3666,10 +3491,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         .font('Helvetica-Bold')
         .text('UOL Transportation App', 45, 32)
 
-      doc
-        .fontSize(13)
-        .font('Helvetica')
-        .text('Official Fee Voucher', 45, 62)
+      doc.fontSize(13).font('Helvetica').text('Official Fee Voucher', 45, 62)
 
       doc
         .fontSize(10)
@@ -3680,9 +3502,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
       // Status badge
       const statusColor = data.status === 'paid' ? '#219653' : '#F2994A'
 
-      doc
-        .roundedRect(45, 135, 505, 38, 10)
-        .fill('#F4F8F4')
+      doc.roundedRect(45, 135, 505, 38, 10).fill('#F4F8F4')
 
       doc
         .fillColor('#175812')
@@ -3767,12 +3587,10 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         .fillColor('#111827')
         .font('Helvetica')
         .fontSize(10)
-        .text(
-          stopNames.length ? stopNames.join('  →  ') : '-',
-          45,
-          y,
-          { width: 505, lineGap: 4 }
-        )
+        .text(stopNames.length ? stopNames.join('  →  ') : '-', 45, y, {
+          width: 505,
+          lineGap: 4
+        })
 
       y += 60
 
@@ -3789,9 +3607,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
       const tableW = 505
       const rowH = 30
 
-      doc
-        .roundedRect(tableX, y, tableW, rowH, 8)
-        .fill('#175812')
+      doc.roundedRect(tableX, y, tableW, rowH, 8).fill('#175812')
 
       doc
         .fillColor('#FFFFFF')
@@ -3816,11 +3632,10 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
           .fontSize(isTotal ? 12 : 10)
           .text(label, tableX + 15, y + 9)
 
-        doc
-          .text(formatMoney(value), tableX + 360, y + 9, {
-            width: 120,
-            align: 'right',
-          })
+        doc.text(formatMoney(value), tableX + 360, y + 9, {
+          width: 120,
+          align: 'right'
+        })
 
         y += rowH
       }
@@ -3851,7 +3666,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         .fontSize(10)
         .text('Thank you for using UOL Transportation App', 45, 760, {
           width: 505,
-          align: 'center',
+          align: 'center'
         })
 
       doc.end()
@@ -3934,23 +3749,20 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
       console.log('PDF VOUCHER FETCH ERROR:', err)
       return res.status(500).json({
         success: false,
-        message: err.message,
+        message: err.message
       })
     }
 
     if (!rows.length) {
       return res.status(404).json({
         success: false,
-        message: 'Voucher not found',
+        message: 'Voucher not found'
       })
     }
 
     const data = rows[0]
 
-    let finalCycle =
-      data.selected_billing_cycle ||
-      requestedCycle ||
-      'monthly'
+    let finalCycle = data.selected_billing_cycle || requestedCycle || 'monthly'
 
     if (!allowedCycles.includes(finalCycle)) {
       finalCycle = 'monthly'
@@ -3964,9 +3776,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         : calculated.subtotal
 
     const tax =
-      Number(data.tax_amount) > 0
-        ? Number(data.tax_amount)
-        : calculated.tax
+      Number(data.tax_amount) > 0 ? Number(data.tax_amount) : calculated.tax
 
     const total =
       Number(data.total_amount) > 0
@@ -3985,29 +3795,24 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         console.log('PDF STOPS ERROR:', stopsErr)
         return res.status(500).json({
           success: false,
-          message: stopsErr.message,
+          message: stopsErr.message
         })
       }
 
       const fileName = `UOL-Fee-Voucher-${data.reg_no || data.student_id}.pdf`
 
       res.setHeader('Content-Type', 'application/pdf')
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${fileName}"`
-      )
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
 
       const doc = new PDFDocument({
         size: 'A4',
-        margin: 45,
+        margin: 45
       })
 
       doc.pipe(res)
 
       // Header background
-      doc
-        .rect(0, 0, 595, 115)
-        .fill('#175812')
+      doc.rect(0, 0, 595, 115).fill('#175812')
 
       doc
         .fillColor('#FFFFFF')
@@ -4015,10 +3820,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         .font('Helvetica-Bold')
         .text('UOL Transportation App', 45, 32)
 
-      doc
-        .fontSize(13)
-        .font('Helvetica')
-        .text('Official Fee Voucher', 45, 62)
+      doc.fontSize(13).font('Helvetica').text('Official Fee Voucher', 45, 62)
 
       doc
         .fontSize(10)
@@ -4029,9 +3831,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
       // Status badge
       const statusColor = data.status === 'paid' ? '#219653' : '#F2994A'
 
-      doc
-        .roundedRect(45, 135, 505, 38, 10)
-        .fill('#F4F8F4')
+      doc.roundedRect(45, 135, 505, 38, 10).fill('#F4F8F4')
 
       doc
         .fillColor('#175812')
@@ -4116,12 +3916,10 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         .fillColor('#111827')
         .font('Helvetica')
         .fontSize(10)
-        .text(
-          stopNames.length ? stopNames.join('  →  ') : '-',
-          45,
-          y,
-          { width: 505, lineGap: 4 }
-        )
+        .text(stopNames.length ? stopNames.join('  →  ') : '-', 45, y, {
+          width: 505,
+          lineGap: 4
+        })
 
       y += 60
 
@@ -4138,9 +3936,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
       const tableW = 505
       const rowH = 30
 
-      doc
-        .roundedRect(tableX, y, tableW, rowH, 8)
-        .fill('#175812')
+      doc.roundedRect(tableX, y, tableW, rowH, 8).fill('#175812')
 
       doc
         .fillColor('#FFFFFF')
@@ -4165,11 +3961,10 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
           .fontSize(isTotal ? 12 : 10)
           .text(label, tableX + 15, y + 9)
 
-        doc
-          .text(formatMoney(value), tableX + 360, y + 9, {
-            width: 120,
-            align: 'right',
-          })
+        doc.text(formatMoney(value), tableX + 360, y + 9, {
+          width: 120,
+          align: 'right'
+        })
 
         y += rowH
       }
@@ -4200,7 +3995,7 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
         .fontSize(10)
         .text('Thank you for using UOL Transportation App', 45, 760, {
           width: 505,
-          align: 'center',
+          align: 'center'
         })
 
       doc.end()
