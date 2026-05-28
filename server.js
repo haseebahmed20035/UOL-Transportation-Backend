@@ -110,18 +110,19 @@ app.post('/add-route', (req, res) => {
 app.get('/routes-with-stops', (req, res) => {
   const sql = `
     SELECT 
-  r.id,
-  r.route_name,
-  r.source,
-  r.destination,
-  r.estimated_time,
-  s.stop_name,
-  s.latitude,
-  s.longitude,
-  s.stop_order
-FROM routes r
-LEFT JOIN route_stops s ON r.id = s.route_id
-ORDER BY r.id, s.stop_order
+    r.id,
+    r.route_name,
+    r.source,
+    r.destination,
+    r.estimated_time,
+    s.id AS stop_id,
+    s.stop_name,
+    s.latitude,
+    s.longitude,
+    s.stop_order
+    FROM routes r
+    LEFT JOIN route_stops s ON r.id = s.route_id
+    ORDER BY r.id, s.stop_order
   `
 
   db.query(sql, (err, result) => {
@@ -146,11 +147,12 @@ ORDER BY r.id, s.stop_order
 
       if (row.stop_name) {
         grouped[row.id].stops.push({
-          stop_name: row.stop_name,
-          latitude: row.latitude,
-          longitude: row.longitude,
-          order: row.stop_order
-        })
+        id: row.stop_id,
+        stop_name: row.stop_name,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        order: row.stop_order,
+      })
       }
     })
 
