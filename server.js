@@ -476,48 +476,6 @@ app.put('/update-route/:id', (req, res) => {
 
 // ================= ADD STUDENT =================
 
-const sendStudentAccountEmail = ({ name, email, tempPass, reg_no }) => {
-  return new Promise(resolve => {
-    transporter.sendMail(
-      {
-        from: process.env.MAIL_USER || 'haseeb.ahmed20035@gmail.com',
-        to: email,
-        subject: 'UOL Transport Account Created 🚍',
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-            <h2>🚍 UOL Transport System</h2>
-            <p>Hello <b>${name}</b>,</p>
-
-            <p>Your student account has been created successfully.</p>
-
-            <h3>Login Credentials</h3>
-            <p><b>Email:</b> ${email}</p>
-            <p><b>Password:</b> ${tempPass}</p>
-            <p><b>Registration No:</b> ${reg_no}</p>
-            <p><b>Role:</b> student</p>
-
-            <p>You can change your password from "My Personal Info".</p>
-          </div>
-        `,
-      },
-      err => {
-        if (err) {
-          console.log('STUDENT MAIL ERROR:', err.message)
-          return resolve({
-            success: false,
-            error: err.message,
-          })
-        }
-
-        console.log('STUDENT MAIL SENT SUCCESS TO:', email)
-        resolve({
-          success: true,
-        })
-      }
-    )
-  })
-}
-
 app.post('/add-student', (req, res) => {
   const { name, email, reg_no, department } = req.body
 
@@ -564,11 +522,10 @@ app.post('/add-student', (req, res) => {
         db.query(
           'INSERT INTO students (user_id, reg_no, department) VALUES (?, ?, ?)',
           [userId, reg_no, department || null],
-          async err => {
+          err => {
             if (err) {
               console.log('STUDENT INSERT ERROR:', err)
 
-              // Optional rollback: remove user if student insert fails
               db.query('DELETE FROM users WHERE id = ?', [userId])
 
               return res.status(500).json({
@@ -577,27 +534,45 @@ app.post('/add-student', (req, res) => {
               })
             }
 
-            const mailResult = await sendStudentAccountEmail({
-              name,
-              email: cleanEmail,
-              tempPass,
-              reg_no,
+            // ✅ Send response immediately to frontend
+            res.status(200).json({
+              success: true,
+              emailQueued: true,
+              message: 'Student added successfully. Email is being sent.',
             })
 
-            if (!mailResult.success) {
-              return res.status(200).json({
-                success: true,
-                mailSent: false,
-                message:
-                  'Student added successfully, but email was not sent. Check backend mail configuration.',
-                mailError: mailResult.error,
-              })
-            }
+            // ✅ Send email in background, do not block app
+            setImmediate(() => {
+              transporter.sendMail(
+                {
+                  from: process.env.MAIL_USER || 'haseeb.ahmed20035@gmail.com',
+                  to: cleanEmail,
+                  subject: 'UOL Transport Account Created 🚍',
+                  html: `
+                    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+                      <h2>🚍 UOL Transport System</h2>
+                      <p>Hello <b>${name}</b>,</p>
 
-            return res.status(200).json({
-              success: true,
-              mailSent: true,
-              message: 'Student added successfully and email sent',
+                      <p>Your student account has been created successfully.</p>
+
+                      <h3>Login Credentials</h3>
+                      <p><b>Email:</b> ${cleanEmail}</p>
+                      <p><b>Password:</b> ${tempPass}</p>
+                      <p><b>Registration No:</b> ${reg_no}</p>
+                      <p><b>Role:</b> student</p>
+
+                      <p>You can change your password from "My Personal Info".</p>
+                    </div>
+                  `,
+                },
+                mailErr => {
+                  if (mailErr) {
+                    console.log('STUDENT MAIL ERROR:', mailErr.message)
+                  } else {
+                    console.log('STUDENT MAIL SENT SUCCESS TO:', cleanEmail)
+                  }
+                }
+              )
             })
           }
         )
