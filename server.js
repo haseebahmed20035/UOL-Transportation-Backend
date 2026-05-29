@@ -545,7 +545,7 @@ app.post('/add-student', (req, res) => {
             setImmediate(() => {
               transporter.sendMail(
                 {
-                  from: process.env.MAIL_USER || 'haseeb.ahmed20035@gmail.com',
+                  from: `"UOL Transport System" <${process.env.MAIL_USER}>`,
                   to: cleanEmail,
                   subject: 'UOL Transport Account Created 🚍',
                   html: `
