@@ -1,5 +1,9 @@
 const nodemailer = require('nodemailer')
+const dns = require('dns')
 require('dotenv').config()
+
+// Force Node.js to prefer IPv4 instead of IPv6
+dns.setDefaultResultOrder('ipv4first')
 
 const mailUser = process.env.MAIL_USER
 const mailPass = process.env.MAIL_PASS?.replace(/\s/g, '')
@@ -15,12 +19,13 @@ const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
   secure: false,
+  family: 4, // force IPv4
   auth: {
     user: mailUser,
     pass: mailPass,
   },
-  connectionTimeout: 15000,
-  greetingTimeout: 15000,
+  connectionTimeout: 20000,
+  greetingTimeout: 20000,
   socketTimeout: 30000,
 })
 
