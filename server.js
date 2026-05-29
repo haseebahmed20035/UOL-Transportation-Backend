@@ -545,7 +545,7 @@ app.post('/add-student', (req, res) => {
             setImmediate(() => {
               transporter.sendMail(
                 {
-                  from: `"UOL Transport System" <${process.env.MAIL_USER}>`,
+                  from: process.env.MAIL_USER || 'haseeb.ahmed20035@gmail.com',
                   to: cleanEmail,
                   subject: 'UOL Transport Account Created 🚍',
                   html: `
@@ -4346,6 +4346,29 @@ app.get('/reverse-geocode', async (req, res) => {
   }
 })
 
+app.get('/test-mail', async (req, res) => {
+  try {
+    const info = await transporter.sendMail({
+      from: `"UOL Transportation System" <${process.env.MAIL_USER}>`,
+      to: process.env.MAIL_USER,
+      subject: 'Railway Mail Test',
+      text: 'Mail is working from Railway backend.',
+    })
+
+    res.json({
+      success: true,
+      message: 'Mail sent',
+      messageId: info.messageId,
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+      code: error.code,
+      command: error.command,
+    })
+  }
+})
 // ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
