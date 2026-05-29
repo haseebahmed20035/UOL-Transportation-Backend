@@ -4120,6 +4120,104 @@ app.get('/fee/voucher/:voucherStudentId/pdf', (req, res) => {
   })
 })
 
+// ================= REVERSE GEOCODE / AREA NAME =================
+
+app.get('/reverse-geocode', async (req, res) => {
+  const { lat, lon } = req.query
+
+  if (!lat || !lon) {
+    return res.status(400).json({
+      success: false,
+      message: 'Latitude and longitude are required',
+    })
+  }
+
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/reverse` +
+      `?format=jsonv2` +
+      `&lat=${lat}` +
+      `&lon=${lon}` +
+      `&zoom=18` +
+      `&addressdetails=1` +
+      `&accept-language=en` +
+      `&email=haseeb.ahmed20035@gmail.com`
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'UOL-Transportation-App/1.0 (haseeb.ahmed20035@gmail.com)',
+        Accept: 'application/json',
+      },
+    })
+
+    const data = await response.json()
+    const addr = data?.address || {}
+
+    const area =
+      addr.neighbourhood ||
+      addr.suburb ||
+      addr.residential ||
+      addr.quarter ||
+      addr.city_district ||
+      addr.town ||
+      addr.village ||
+      addr.hamlet
+
+    const road =
+      addr.road ||
+      addr.pedestrian ||
+      addr.footway ||
+      addr.path ||
+      addr.cycleway ||
+      addr.highway
+
+    const city =
+      addr.city ||
+      addr.town ||
+      addr.municipality ||
+      addr.county ||
+      addr.state_district ||
+      addr.state
+
+    let stopName = null
+
+    if (area && city) {
+      stopName = `${area}, ${city}`
+    } else if (area) {
+      stopName = area
+    } else if (road && city) {
+      stopName = `${road}, ${city}`
+    } else if (road) {
+      stopName = road
+    } else if (city) {
+      stopName = city
+    } else if (data?.display_name) {
+      stopName = data.display_name.split(',').slice(0, 3).join(',').trim()
+    } else {
+      stopName = `Stop near ${Number(lat).toFixed(5)}, ${Number(lon).toFixed(
+        5,
+      )}`
+    }
+
+    return res.json({
+      success: true,
+      stop_name: stopName,
+      address: addr,
+    })
+  } catch (error) {
+    console.log('REVERSE GEOCODE ERROR:', error)
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch address',
+      stop_name: `Stop near ${Number(lat).toFixed(5)}, ${Number(lon).toFixed(
+        5,
+      )}`,
+    })
+  }
+})
+
 // ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
