@@ -1,35 +1,28 @@
-const nodemailer = require('nodemailer')
-const dns = require('dns')
+const { Resend } = require('resend')
 require('dotenv').config()
 
-dns.setDefaultResultOrder('ipv4first')
+const resend = new Resend(process.env.RESEND_API_KEY)
 
-console.log('MAIL CONFIG VERSION: GMAIL 465 IPV4')
-
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  family: 4,
-  auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASS?.replace(/\s/g, ''),
-  },
-  connectionTimeout: 20000,
-  greetingTimeout: 20000,
-  socketTimeout: 30000,
-})
-
-transporter.verify(error => {
-  if (error) {
-    console.log('MAIL CONFIG ERROR:', {
-      message: error.message,
-      code: error.code,
-      command: error.command,
+const sendMail = async ({ to, subject, html }) => {
+  try {
+    const { data, error } = await resend.emails.send({
+      from: 'UOL Transport <onboarding@resend.dev>',
+      to,
+      subject,
+      html
     })
-  } else {
-    console.log('MAIL SERVER READY')
-  }
-})
 
-module.exports = transporter
+    if (error) {
+      console.log('MAIL ERROR:', error)
+      return false
+    }
+
+    console.log('MAIL SENT TO:', to)
+    return true
+  } catch (err) {
+    console.log('MAIL ERROR:', err.message)
+    return false
+  }
+}
+
+module.exports = { sendMail }
