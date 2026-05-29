@@ -4,6 +4,8 @@ require('dotenv').config()
 
 dns.setDefaultResultOrder('ipv4first')
 
+console.log('MAIL CONFIG VERSION: IPV4 FORCE ACTIVE')
+
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
