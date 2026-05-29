@@ -4132,13 +4132,13 @@ app.get('/reverse-geocode', async (req, res) => {
     })
   }
 
-  try {
+  const fetchNominatim = async zoom => {
     const url =
       `https://nominatim.openstreetmap.org/reverse` +
       `?format=jsonv2` +
       `&lat=${lat}` +
       `&lon=${lon}` +
-      `&zoom=18` +
+      `&zoom=${zoom}` +
       `&addressdetails=1` +
       `&accept-language=en` +
       `&email=haseeb.ahmed20035@gmail.com`
@@ -4151,7 +4151,10 @@ app.get('/reverse-geocode', async (req, res) => {
       },
     })
 
-    const data = await response.json()
+    return await response.json()
+  }
+
+  const buildStopName = data => {
     const addr = data?.address || {}
 
     const area =
@@ -4160,6 +4163,7 @@ app.get('/reverse-geocode', async (req, res) => {
       addr.residential ||
       addr.quarter ||
       addr.city_district ||
+      addr.district ||
       addr.town ||
       addr.village ||
       addr.hamlet
@@ -4177,33 +4181,122 @@ app.get('/reverse-geocode', async (req, res) => {
       addr.town ||
       addr.municipality ||
       addr.county ||
-      addr.state_district ||
-      addr.state
+      addr.state_district
 
-    let stopName = null
+    // Prefer area name first
+    if (area && city && area !== city) return `${area}, ${city}`
+    if (area) return area
+    if (road && city) return `${road}, ${city}`
+    if (road) return road
 
-    if (area && city) {
-      stopName = `${area}, ${city}`
-    } else if (area) {
-      stopName = area
-    } else if (road && city) {
-      stopName = `${road}, ${city}`
-    } else if (road) {
-      stopName = road
-    } else if (city) {
-      stopName = city
-    } else if (data?.display_name) {
-      stopName = data.display_name.split(',').slice(0, 3).join(',').trim()
-    } else {
-      stopName = `Stop near ${Number(lat).toFixed(5)}, ${Number(lon).toFixed(
+    // Better fallback from display_name
+    if (data?.display_name) {
+      const parts = data.display_name
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean)
+
+      const badParts = [
+        'Pakistan',
+        'Punjab',
+        'Lahore Division',
+        'Lahore District',
+        'Lahore City Tehsil',
+      ]
+
+      const usefulParts = parts.filter(part => !badParts.includes(part))
+
+      if (usefulParts.length >= 2) {
+        return usefulParts.slice(0, 2).join(', ')
+      }
+
+      if (usefulParts.length === 1) {
+        return usefulParts[0]
+      }
+    }
+
+    if (city) return city
+
+    return null
+  }
+
+  try {
+    // Try detailed zoom first, then area-level zoom
+    const zoomLevels = [18, 17, 16, 15, 14, 13, 12]
+
+    let finalData = null
+    let finalName = null
+
+    for (const zoom of zoomLevels) {
+      const data = await fetchNominatim(zoom)
+
+      console.log(`NOMINATIM ZOOM ${zoom}:`, data?.display_name)
+
+      const name = buildStopName(data)
+
+      if (
+        name &&
+        name.toLowerCase() !== 'lahore' &&
+        name.toLowerCase() !== 'lahore district'
+      ) {
+        finalData = data
+        finalName = name
+        break
+      }
+
+      if (!finalData) {
+        finalData = data
+        finalName = name
+      }
+    }
+
+    // Free fallback if Nominatim only gives Lahore
+    if (
+      !finalName ||
+      finalName.toLowerCase() === 'lahore' ||
+      finalName.toLowerCase() === 'lahore district'
+    ) {
+      try {
+        const bigDataUrl =
+          `https://api.bigdatacloud.net/data/reverse-geocode-client` +
+          `?latitude=${lat}` +
+          `&longitude=${lon}` +
+          `&localityLanguage=en`
+
+        const bigDataResponse = await fetch(bigDataUrl)
+        const bigData = await bigDataResponse.json()
+
+        console.log('BIGDATACLOUD RESPONSE:', bigData)
+
+        const locality = bigData?.locality
+        const city = bigData?.city
+        const principalSubdivision = bigData?.principalSubdivision
+
+        if (locality && city && locality !== city) {
+          finalName = `${locality}, ${city}`
+        } else if (locality) {
+          finalName = locality
+        } else if (city) {
+          finalName = city
+        } else if (principalSubdivision) {
+          finalName = principalSubdivision
+        }
+      } catch (fallbackError) {
+        console.log('BIGDATACLOUD ERROR:', fallbackError)
+      }
+    }
+
+    if (!finalName) {
+      finalName = `Stop near ${Number(lat).toFixed(5)}, ${Number(lon).toFixed(
         5,
       )}`
     }
 
     return res.json({
       success: true,
-      stop_name: stopName,
-      address: addr,
+      stop_name: finalName,
+      address: finalData?.address || {},
+      display_name: finalData?.display_name || null,
     })
   } catch (error) {
     console.log('REVERSE GEOCODE ERROR:', error)
