@@ -476,69 +476,129 @@ app.put('/update-route/:id', (req, res) => {
 
 // ================= ADD STUDENT =================
 
+const sendStudentAccountEmail = ({ name, email, tempPass, reg_no }) => {
+  return new Promise(resolve => {
+    transporter.sendMail(
+      {
+        from: process.env.MAIL_USER || 'haseeb.ahmed20035@gmail.com',
+        to: email,
+        subject: 'UOL Transport Account Created 🚍',
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+            <h2>🚍 UOL Transport System</h2>
+            <p>Hello <b>${name}</b>,</p>
+
+            <p>Your student account has been created successfully.</p>
+
+            <h3>Login Credentials</h3>
+            <p><b>Email:</b> ${email}</p>
+            <p><b>Password:</b> ${tempPass}</p>
+            <p><b>Registration No:</b> ${reg_no}</p>
+            <p><b>Role:</b> student</p>
+
+            <p>You can change your password from "My Personal Info".</p>
+          </div>
+        `,
+      },
+      err => {
+        if (err) {
+          console.log('STUDENT MAIL ERROR:', err.message)
+          return resolve({
+            success: false,
+            error: err.message,
+          })
+        }
+
+        console.log('STUDENT MAIL SENT SUCCESS TO:', email)
+        resolve({
+          success: true,
+        })
+      }
+    )
+  })
+}
+
 app.post('/add-student', (req, res) => {
   const { name, email, reg_no, department } = req.body
 
   if (!name || !email || !reg_no) {
-    return res.status(400).json({ message: 'Required fields missing' })
+    return res.status(400).json({
+      success: false,
+      message: 'Name, email and registration number are required',
+    })
   }
 
+  const cleanEmail = email.trim().toLowerCase()
   const tempPass = Math.random().toString(36).slice(-8)
 
-  db.query('SELECT * FROM users WHERE email = ?', [email], (err, exist) => {
-    if (err) return res.status(500).json({ message: 'DB error' })
+  db.query('SELECT * FROM users WHERE email = ?', [cleanEmail], (err, exist) => {
+    if (err) {
+      console.log('STUDENT EMAIL CHECK ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: 'Database error while checking email',
+      })
+    }
 
     if (exist.length > 0) {
-      return res.status(400).json({ message: 'Email already exists' })
+      return res.status(400).json({
+        success: false,
+        message: 'Email already exists',
+      })
     }
 
     db.query(
       'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
-      [name, email, tempPass, 'student'],
+      [name, cleanEmail, tempPass, 'student'],
       (err, userRes) => {
         if (err) {
           console.log('USER INSERT ERROR:', err)
-          return res.status(500).json({ message: err.message })
+          return res.status(500).json({
+            success: false,
+            message: err.message,
+          })
         }
 
         const userId = userRes.insertId
 
         db.query(
-          `INSERT INTO students (user_id, reg_no, department) VALUES (?, ?, ?)`,
-          [userId, reg_no, department],
-          err => {
+          'INSERT INTO students (user_id, reg_no, department) VALUES (?, ?, ?)',
+          [userId, reg_no, department || null],
+          async err => {
             if (err) {
               console.log('STUDENT INSERT ERROR:', err)
-              return res.status(500).json({ message: err.message })
+
+              // Optional rollback: remove user if student insert fails
+              db.query('DELETE FROM users WHERE id = ?', [userId])
+
+              return res.status(500).json({
+                success: false,
+                message: err.message,
+              })
             }
 
-            res.json({
-              message: 'Student added successfully'
+            const mailResult = await sendStudentAccountEmail({
+              name,
+              email: cleanEmail,
+              tempPass,
+              reg_no,
             })
 
-            transporter.sendMail(
-              {
-                from: 'haseeb.ahmed20035@gmail.com',
-                to: email,
-                subject: 'UOL Transport Account Created 🚍',
-                html: `
-                  <h2>🚍 UOL Transport System</h2>
-                  <p>Hello <b>${name}</b>,</p>
-                  <p>Email: ${email}</p>
-                  <p>Password: ${tempPass}</p>
-                  <p>Registration No: ${reg_no}</p>
-                  <p><b>Role:</b> student</p>
-                  <p>You can change password from "My Personal Info"</p>
-                `
-              },
-              err => {
-                if (err) {
-                  console.log('MAIL ERROR:', err)
-                } else {
-                  console.log('MAIL SENT SUCCESS')
-                }
-              }
-            )
+            if (!mailResult.success) {
+              return res.status(200).json({
+                success: true,
+                mailSent: false,
+                message:
+                  'Student added successfully, but email was not sent. Check backend mail configuration.',
+                mailError: mailResult.error,
+              })
+            }
+
+            return res.status(200).json({
+              success: true,
+              mailSent: true,
+              message: 'Student added successfully and email sent',
+            })
           }
         )
       }
