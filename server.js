@@ -1611,6 +1611,123 @@ app.get('/driver/my-route/:driverId', (req, res) => {
   })
 })
 
+app.get('/driver/current-ride/:driverId', (req, res) => {
+  const { driverId } = req.params
+
+  const sql = `
+    SELECT 
+      bll.bus_id,
+      bll.driver_id,
+      bll.route_id,
+      bll.latitude,
+      bll.longitude,
+      bll.status,
+      bll.updated_at,
+
+      b.bus_number,
+      b.capacity,
+      b.status AS bus_status,
+      b.driver_name,
+
+      r.route_name,
+      r.source,
+      r.destination,
+      r.estimated_time
+
+    FROM bus_live_locations bll
+
+    JOIN (
+      SELECT bus_id, MAX(id) AS latest_id
+      FROM bus_live_locations
+      GROUP BY bus_id
+    ) latest
+      ON bll.id = latest.latest_id
+
+    JOIN buses b
+      ON bll.bus_id = b.id
+
+    JOIN routes r
+      ON bll.route_id = r.id
+
+    WHERE bll.driver_id = ?
+      AND bll.status = 'running'
+
+    ORDER BY bll.updated_at DESC
+    LIMIT 1
+  `
+
+  db.query(sql, [driverId], (err, result) => {
+    if (err) {
+      console.log('DRIVER CURRENT RIDE ERROR:', err)
+
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      })
+    }
+
+    if (result.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No running ride found',
+        ride: null,
+      })
+    }
+
+    const ride = result[0]
+
+    const stopsSql = `
+      SELECT 
+        id,
+        stop_name,
+        latitude,
+        longitude,
+        stop_order
+      FROM route_stops
+      WHERE route_id = ?
+      ORDER BY stop_order ASC
+    `
+
+    db.query(stopsSql, [ride.route_id], (stopErr, stops) => {
+      if (stopErr) {
+        console.log('DRIVER CURRENT RIDE STOPS ERROR:', stopErr)
+
+        return res.status(500).json({
+          success: false,
+          message: stopErr.message,
+        })
+      }
+
+      return res.json({
+        success: true,
+        ride: {
+          bus_id: ride.bus_id,
+          driver_id: ride.driver_id,
+          route_id: ride.route_id,
+
+          latitude: ride.latitude,
+          longitude: ride.longitude,
+
+          status: 'running',
+          is_live: true,
+
+          bus_number: ride.bus_number,
+          capacity: ride.capacity,
+          driver_name: ride.driver_name,
+
+          route_name: ride.route_name,
+          source: ride.source,
+          destination: ride.destination,
+          estimated_time: ride.estimated_time,
+
+          updated_at: ride.updated_at,
+          stops: Array.isArray(stops) ? stops : [],
+        },
+      })
+    })
+  })
+})
+
 // ================= TRIP CONTROL / LIVE TRACKING =================
 
 app.post('/start-trip', (req, res) => {
