@@ -4315,6 +4315,65 @@ app.get('/reverse-geocode', async (req, res) => {
     })
   }
 })
+const createComplaintFromChatbot = async ({
+  userId,
+  role,
+  title,
+  category,
+  description,
+}) => {
+  return new Promise((resolve, reject) => {
+    if (role !== 'student') {
+      reject(new Error('Only students can register complaints through chatbot'));
+      return;
+    }
+
+    const findStudentSql = `
+      SELECT id
+      FROM students
+      WHERE user_id = ?
+      LIMIT 1
+    `;
+
+    db.query(findStudentSql, [userId], (studentErr, students) => {
+      if (studentErr) {
+        reject(studentErr);
+        return;
+      }
+
+      if (!students || students.length === 0) {
+        reject(new Error('Student profile not found for this user'));
+        return;
+      }
+
+      const studentId = students[0].id;
+
+      const insertComplaintSql = `
+        INSERT INTO complaints
+        (
+          student_id,
+          title,
+          category,
+          description
+        )
+        VALUES (?, ?, ?, ?)
+      `;
+
+      db.query(
+        insertComplaintSql,
+        [studentId, title, category, description],
+        (insertErr, result) => {
+          if (insertErr) {
+            reject(insertErr);
+            return;
+          }
+
+          resolve(result);
+        },
+      );
+    });
+  });
+};
 // ================= CHAT BOT =================
 app.post('/chatbot/ask', async (req, res) => {
   try {
@@ -4334,7 +4393,18 @@ app.post('/chatbot/ask', async (req, res) => {
 
     const normalizedRole = String(role || 'student').toLowerCase();
 
+    // ✅ Complaint action only when chatbot detects complaint request
     if (botResult.type === 'create_complaint') {
+      if (normalizedRole !== 'student') {
+        return res.status(403).json({
+          success: false,
+          reply:
+            'Complaint registration through chatbot is currently available for students only.',
+          action: null,
+          suggestions: ['Track my bus', 'Notifications', 'Route details'],
+        });
+      }
+
       if (!userId) {
         return res.status(400).json({
           success: false,
@@ -4369,6 +4439,7 @@ app.post('/chatbot/ask', async (req, res) => {
       });
     }
 
+    // ✅ Normal chatbot reply
     return res.json({
       success: true,
       reply: botResult.reply,
