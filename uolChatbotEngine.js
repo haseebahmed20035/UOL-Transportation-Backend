@@ -319,7 +319,113 @@ const cleanComplaintDescription = message => {
 
   return description || message
 }
+const isCapabilityQuestion = text => {
+  return includesAny(text, [
+    'kya aap',
+    'kia aap',
+    'can you',
+    'could you',
+    'can u',
+    'krskte',
+    'kar skte',
+    'kar sakte',
+    'kar sakti',
+    'kr sakte',
+    'register krskte',
+    'register kar sakte',
+    'complaint register krskte',
+    'complaint register kar sakte',
+    'can you register',
+    'are you able',
+    'possible',
+    '?',
+  ])
+}
 
+const hasDirectActionWords = text => {
+  return includesAny(text, [
+    'register kro',
+    'register karo',
+    'register krdo',
+    'register kar do',
+    'complaint bhej',
+    'admin ko bhej',
+    'admin ko send',
+    'bhej do',
+    'send karo',
+    'report kro',
+    'report karo',
+    'report krdo',
+    'shikayat register kro',
+    'shikayat register karo',
+    'شکایت درج',
+  ])
+}
+
+const getComplaintIssueScore = text => {
+  let score = 0
+
+  const issueWords = [
+    'late',
+    'delay',
+    'der',
+    'dair',
+    'time par nahi',
+    'bus nahi ayi',
+    'bus nahi aayi',
+    'location',
+    'tracking',
+    'gps',
+    'update nahi',
+    'driver',
+    'badtameezi',
+    'bad behavior',
+    'rude',
+    'misbehave',
+    'route',
+    'stop',
+    'pickup',
+    'wrong stop',
+    'fee',
+    'voucher',
+    'amount',
+    'payment',
+    'not working',
+    'nahi chal raha',
+    'nahi ho raha',
+  ]
+
+  issueWords.forEach(word => {
+    if (text.includes(word)) score += 1
+  })
+
+  return score
+}
+
+const hasComplaintIssueDetails = text => {
+  const complaintInfo = detectComplaintCategory(text)
+
+  if (complaintInfo.category !== 'General Complaint') {
+    return true
+  }
+
+  return getComplaintIssueScore(text) > 0
+}
+
+const isSafeToCreateComplaint = text => {
+  if (!isComplaintRequest(text)) return false
+
+  if (isCapabilityQuestion(text)) return false
+
+  if (!hasDirectActionWords(text)) return false
+  if (!hasComplaintIssueDetails(text)) return false
+
+  return true
+}
+
+const isComplaintCapabilityOnly = text => {
+  return isComplaintRequest(text) && isCapabilityQuestion(text)
+}
 const modules = [
   {
     id: 'student_live_tracking',
@@ -1038,7 +1144,35 @@ const buildChatbotResponse = ({ message, role }) => {
     role: normalizedRole,
   })
 
-  if (isComplaintRequest(text) && isDirectComplaintCommand(text)) {
+    // User is only asking if bot can register complaint
+  // Example: "kya aap meri complaint register krskte"
+  if (isComplaintCapabilityOnly(text)) {
+    return {
+      type: 'reply',
+      reply:
+        `Yes, main aapki complaint register kar sakta hoon, lekin pehle mujhe actual issue batana hoga.\n\n` +
+        `Aap is tarah likhein:\n` +
+        `• meri bus late ati hai complaint register kro\n` +
+        `• driver badtameezi kr raha hai complaint bhej do\n` +
+        `• bus location update nahi ho rahi complaint register kro\n` +
+        `• fee voucher mein amount galat hai complaint register kro`,
+      actionKey:
+        normalizedRole === 'student' ? ACTION_KEYS.STUDENT_COMPLAINT : null,
+      actionLabel:
+        normalizedRole === 'student'
+          ? getActionLabel(ACTION_KEYS.STUDENT_COMPLAINT)
+          : null,
+      intent: 'complaint_capability_question',
+      suggestions: [
+        'meri bus late ati hai complaint register kro',
+        'driver badtameezi kr raha hai complaint bhej do',
+        'bus location update nahi ho rahi complaint register kro',
+      ],
+    }
+  }
+
+  // Direct complaint command only when issue details are clear
+  if (isSafeToCreateComplaint(text)) {
     if (normalizedRole !== 'student') {
       return {
         type: 'reply',
@@ -1058,55 +1192,72 @@ const buildChatbotResponse = ({ message, role }) => {
     const complaintInfo = detectComplaintCategory(text)
     const description = cleanComplaintDescription(message)
 
-    if (description.length >= 8) {
-      return {
-        type: 'create_complaint',
-        intent: 'create_complaint',
-        complaint: {
-          title: complaintInfo.title,
-          category: complaintInfo.category,
-          description,
-        },
-        actionKey: ACTION_KEYS.STUDENT_COMPLAINT,
-        actionLabel: getActionLabel(ACTION_KEYS.STUDENT_COMPLAINT),
-        suggestions: getSuggestions(normalizedRole),
-      }
+    return {
+      type: 'create_complaint',
+      intent: 'create_complaint',
+      complaint: {
+        title: complaintInfo.title,
+        category: complaintInfo.category,
+        description,
+      },
+      actionKey: ACTION_KEYS.STUDENT_COMPLAINT,
+      actionLabel: getActionLabel(ACTION_KEYS.STUDENT_COMPLAINT),
+      suggestions: getSuggestions(normalizedRole),
     }
   }
 
-  if (isComplaintRequest(text) && !isDirectComplaintCommand(text)) {
-    const complaintModule = modules.find(
-      item => item.id === 'student_complaint',
-    )
-
-    if (normalizedRole === 'student') {
-      return {
-        type: 'reply',
-        ...buildModuleReply({
-          module: complaintModule,
-          helpMode: true,
-        }),
-        suggestions: [
-          'meri bus late ati hai complaint register kro',
-          'driver badtameezi kr raha hai complaint bhej do',
-          'bus location update nahi ho rahi complaint register kro',
-        ],
-      }
+  // User said complaint/register but did not provide issue details
+  // Example: "complaint register kro"
+  if (
+    isComplaintRequest(text) &&
+    hasDirectActionWords(text) &&
+    !hasComplaintIssueDetails(text)
+  ) {
+    return {
+      type: 'reply',
+      reply:
+        `Complaint register karne ke liye please issue clearly batayein.\n\n` +
+        `Example:\n` +
+        `• meri bus late ati hai complaint register kro\n` +
+        `• bus location update nahi ho rahi complaint register kro\n` +
+        `• driver badtameezi kr raha hai complaint bhej do\n` +
+        `• fee voucher mein amount galat hai complaint register kro`,
+      actionKey:
+        normalizedRole === 'student' ? ACTION_KEYS.STUDENT_COMPLAINT : null,
+      actionLabel:
+        normalizedRole === 'student'
+          ? getActionLabel(ACTION_KEYS.STUDENT_COMPLAINT)
+          : null,
+      intent: 'complaint_missing_issue',
+      suggestions: [
+        'meri bus late ati hai complaint register kro',
+        'bus location update nahi ho rahi complaint register kro',
+        'driver badtameezi kr raha hai complaint bhej do',
+      ],
     }
+  }
 
-    if (normalizedRole === 'admin') {
-      const adminComplaintModule = modules.find(
-        item => item.id === 'admin_complaints',
-      )
+  // Complaint related help, but no direct create action
+  if (isComplaintRequest(text)) {
+    const complaintModule =
+      normalizedRole === 'admin'
+        ? modules.find(item => item.id === 'admin_complaints')
+        : modules.find(item => item.id === 'student_complaint')
 
-      return {
-        type: 'reply',
-        ...buildModuleReply({
-          module: adminComplaintModule,
-          helpMode: true,
-        }),
-        suggestions: getSuggestions(normalizedRole),
-      }
+    return {
+      type: 'reply',
+      ...buildModuleReply({
+        module: complaintModule,
+        helpMode: true,
+      }),
+      suggestions:
+        normalizedRole === 'student'
+          ? [
+              'meri bus late ati hai complaint register kro',
+              'driver badtameezi kr raha hai complaint bhej do',
+              'bus location update nahi ho rahi complaint register kro',
+            ]
+          : getSuggestions(normalizedRole),
     }
   }
 
