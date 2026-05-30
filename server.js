@@ -634,23 +634,23 @@ app.post('/send-otp', (req, res) => {
 
   // Send email in background
   setImmediate(async () => {
-  const sent = await sendMail({
-    to: email,
-    subject: 'OTP Verification',
-    html: `
+    const sent = await sendMail({
+      to: email,
+      subject: 'OTP Verification',
+      html: `
       <h2>UOL Transportation App</h2>
       <p>Your OTP for changing password is:</p>
       <h1>${otp}</h1>
       <p>This OTP will expire in 5 minutes.</p>
     `,
-  })
+    })
 
-  if (sent) {
-    console.log('OTP MAIL SENT SUCCESSFULLY TO:', email)
-  } else {
-    console.log('OTP MAIL FAILED:', email)
-  }
-})
+    if (sent) {
+      console.log('OTP MAIL SENT SUCCESSFULLY TO:', email)
+    } else {
+      console.log('OTP MAIL FAILED:', email)
+    }
+  })
 })
 
 app.post('/change-password', async (req, res) => {
@@ -1389,10 +1389,10 @@ app.post('/add-driver', (req, res) => {
 
         // SEND EMAIL
         setImmediate(async () => {
-  const sent = await sendMail({
-    to: email,
-    subject: 'Driver Account Created 🚍',
-    html: `
+          const sent = await sendMail({
+            to: email,
+            subject: 'Driver Account Created 🚍',
+            html: `
       <h2>🚍 UOL Transportation System</h2>
 
       <p>Hello <b>${name}</b>,</p>
@@ -1408,14 +1408,14 @@ app.post('/add-driver', (req, res) => {
       <p>Please login using these credentials.</p>
       <p>You can change password from "My Personal Info"</p>
     `,
-  })
+          })
 
-  if (sent) {
-    console.log('DRIVER MAIL SENT TO:', email)
-  } else {
-    console.log('DRIVER MAIL FAILED:', email)
-  }
-})
+          if (sent) {
+            console.log('DRIVER MAIL SENT TO:', email)
+          } else {
+            console.log('DRIVER MAIL FAILED:', email)
+          }
+        })
 
         return res.status(200).json({
           success: true,
