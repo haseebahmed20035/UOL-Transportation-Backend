@@ -540,15 +540,13 @@ app.post('/add-student', (req, res) => {
               emailQueued: true,
               message: 'Student added successfully. Email is being sent.',
             })
-
-            // ✅ Send email in background, do not block app
             setImmediate(async () => {
               const sent = await sendMail({
                 to: cleanEmail,
                 subject: 'UOL Transport Account Created 🚍',
                 html: `
       <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>🚍 UOL Transportation System</h2>
+        <h2>UOL Transportation System</h2>
         <p>Hello <b>${name}</b>,</p>
 
         <p>Your student account has been created successfully.</p>
@@ -620,19 +618,15 @@ app.post('/send-otp', (req, res) => {
 
   const otp = Math.floor(100000 + Math.random() * 900000).toString()
 
-  // Store OTP with expiry time
   otpStore[email] = {
     otp,
-    expiresAt: Date.now() + 5 * 60 * 1000 // 5 minutes
+    expiresAt: Date.now() + 5 * 60 * 1000 
   }
 
-  // Send response immediately to frontend
   res.json({
     success: true,
     message: 'OTP is being sent to your email'
   })
-
-  // Send email in background
   setImmediate(async () => {
     const sent = await sendMail({
       to: email,
@@ -1386,14 +1380,12 @@ app.post('/add-driver', (req, res) => {
             message: err.message
           })
         }
-
-        // SEND EMAIL
         setImmediate(async () => {
           const sent = await sendMail({
             to: email,
             subject: 'Driver Account Created 🚍',
             html: `
-      <h2>🚍 UOL Transportation System</h2>
+      <h2>UOL Transportation System</h2>
 
       <p>Hello <b>${name}</b>,</p>
 
@@ -1477,6 +1469,7 @@ app.get('/all-drivers', (req, res) => {
       d.phone,
       d.cnic,
       d.joining_date,
+      d.password,
       d.is_available,
 
       b.bus_number,
@@ -1492,9 +1485,11 @@ app.get('/all-drivers', (req, res) => {
 
   db.query(sql, (err, result) => {
     if (err) {
+      console.log('ALL DRIVERS ERROR:', err)
+
       return res.status(500).json({
         success: false,
-        message: err.message
+        message: err.message,
       })
     }
 
@@ -2744,7 +2739,7 @@ const getFeeVoucherEmailHtml = ({
 }) => {
   return `
     <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-      <h2>🚍 UOL Transportation Fee Voucher</h2>
+      <h2>UOL Transportation Fee Voucher</h2>
 
       <p>Hello <b>${studentName || 'Student'}</b>,</p>
 
@@ -2791,8 +2786,6 @@ const getFeeReminderEmailHtml = ({ studentName, title, amount, dueDate }) => {
     </div>
   `
 }
-
-// Admin: get students for fee screen
 app.get('/fee/students', (req, res) => {
   const sql = `
     SELECT
