@@ -1,26 +1,26 @@
-const Brevo = require('@getbrevo/brevo')
+const SibApiV3Sdk = require('@getbrevo/brevo')
 require('dotenv').config()
 
-const client = Brevo.ApiClient.instance
-const apiKey = client.authentications['api-key']
+let defaultClient = SibApiV3Sdk.ApiClient.instance
+let apiKey = defaultClient.authentications['api-key']
 apiKey.apiKey = process.env.BREVO_API_KEY
 
-const apiInstance = new Brevo.TransactionalEmailsApi()
+let apiInstance = new SibApiV3Sdk.TransactionalEmailsApi()
 
 const sendMail = async ({ to, subject, html }) => {
   try {
-    const email = new Brevo.SendSmtpEmail()
+    let sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail()
 
-    email.sender = {
+    sendSmtpEmail.sender = {
       name: 'UOL Transport',
       email: 'haseeb.ahmed20035@gmail.com'
     }
 
-    email.to = [{ email: to }]
-    email.subject = subject
-    email.htmlContent = html
+    sendSmtpEmail.to = [{ email: to }]
+    sendSmtpEmail.subject = subject
+    sendSmtpEmail.htmlContent = html
 
-    await apiInstance.sendTransacEmail(email)
+    await apiInstance.sendTransacEmail(sendSmtpEmail)
 
     console.log('MAIL SENT TO:', to)
     return true
