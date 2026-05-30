@@ -710,6 +710,7 @@ app.get('/all-students', (req, res) => {
       u.id,
       u.name,
       u.email,
+      u.password,
       s.reg_no,
       s.department
     FROM users u
