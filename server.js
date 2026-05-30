@@ -2,7 +2,7 @@ const db = require('./config/db')
 const admin = require('./config/firebase')
 const express = require('express')
 const cors = require('cors')
-const { sendMail } = require('./config/mail')
+const transporter = require('./config/mail')
 const cron = require('node-cron')
 const app = express()
 require('dotenv').config()
@@ -482,94 +482,103 @@ app.post('/add-student', (req, res) => {
   if (!name || !email || !reg_no) {
     return res.status(400).json({
       success: false,
-      message: 'Name, email and registration number are required'
+      message: 'Name, email and registration number are required',
     })
   }
 
   const cleanEmail = email.trim().toLowerCase()
   const tempPass = Math.random().toString(36).slice(-8)
 
-  db.query(
-    'SELECT * FROM users WHERE email = ?',
-    [cleanEmail],
-    (err, exist) => {
-      if (err) {
-        console.log('STUDENT EMAIL CHECK ERROR:', err)
-        return res.status(500).json({
-          success: false,
-          message: 'Database error while checking email'
-        })
-      }
+  db.query('SELECT * FROM users WHERE email = ?', [cleanEmail], (err, exist) => {
+    if (err) {
+      console.log('STUDENT EMAIL CHECK ERROR:', err)
+      return res.status(500).json({
+        success: false,
+        message: 'Database error while checking email',
+      })
+    }
 
-      if (exist.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Email already exists'
-        })
-      }
+    if (exist.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already exists',
+      })
+    }
 
-      db.query(
-        'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
-        [name, cleanEmail, tempPass, 'student'],
-        (err, userRes) => {
-          if (err) {
-            console.log('USER INSERT ERROR:', err)
-            return res.status(500).json({
-              success: false,
-              message: err.message
-            })
-          }
+    db.query(
+      'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
+      [name, cleanEmail, tempPass, 'student'],
+      (err, userRes) => {
+        if (err) {
+          console.log('USER INSERT ERROR:', err)
+          return res.status(500).json({
+            success: false,
+            message: err.message,
+          })
+        }
 
-          const userId = userRes.insertId
+        const userId = userRes.insertId
 
-          db.query(
-            'INSERT INTO students (user_id, reg_no, department) VALUES (?, ?, ?)',
-            [userId, reg_no, department || null],
-            err => {
-              if (err) {
-                console.log('STUDENT INSERT ERROR:', err)
+        db.query(
+          'INSERT INTO students (user_id, reg_no, department) VALUES (?, ?, ?)',
+          [userId, reg_no, department || null],
+          err => {
+            if (err) {
+              console.log('STUDENT INSERT ERROR:', err)
 
-                db.query('DELETE FROM users WHERE id = ?', [userId])
+              db.query('DELETE FROM users WHERE id = ?', [userId])
 
-                return res.status(500).json({
-                  success: false,
-                  message: err.message
-                })
-              }
-
-              // ✅ Send response immediately to frontend
-              res.status(200).json({
-                success: true,
-                emailQueued: true,
-                message: 'Student added successfully. Email is being sent.'
+              return res.status(500).json({
+                success: false,
+                message: err.message,
               })
+            }
 
-              // ✅ Send email in background, do not block app
-              setImmediate(async () => {
-                await sendMail({
+            // ✅ Send response immediately to frontend
+            res.status(200).json({
+              success: true,
+              emailQueued: true,
+              message: 'Student added successfully. Email is being sent.',
+            })
+
+            // ✅ Send email in background, do not block app
+            setImmediate(() => {
+              transporter.sendMail(
+                {
+                  from: process.env.MAIL_USER || 'haseeb.ahmed20035@gmail.com',
                   to: cleanEmail,
                   subject: 'UOL Transport Account Created 🚍',
                   html: `
-                <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                  <h2>🚍 UOL Transport System</h2>
-                  <p>Hello <b>${name}</b>,</p>
-                  <p>Your student account has been created successfully.</p>
-                  <h3>Login Credentials</h3>
-                  <p><b>Email:</b> ${cleanEmail}</p>
-                  <p><b>Password:</b> ${tempPass}</p>
-                  <p><b>Registration No:</b> ${reg_no}</p>
-                  <p><b>Role:</b> student</p>
-                  <p>You can change your password from "My Personal Info".</p>
-                </div>
-              `
-                })
-              })
-            }
-          )
-        }
-      )
-    }
-  )
+                    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+                      <h2>🚍 UOL Transport System</h2>
+                      <p>Hello <b>${name}</b>,</p>
+
+                      <p>Your student account has been created successfully.</p>
+
+                      <h3>Login Credentials</h3>
+                      <p><b>Email:</b> ${cleanEmail}</p>
+                      <p><b>Password:</b> ${tempPass}</p>
+                      <p><b>Registration No:</b> ${reg_no}</p>
+                      <p><b>Role:</b> student</p>
+
+                      <p>You can change your password from "My Personal Info".</p>
+                    </div>
+                  `,
+                },
+                mailErr => {
+                  if (mailErr) {
+                    console.log('STUDENT MAIL ERROR:', mailErr.message)
+                  } else {
+                    console.log('STUDENT MAIL SENT SUCCESS TO:', cleanEmail)
+                  }
+                }
+              )
+            })
+          }
+        )
+      }
+    )
+  })
 })
 
 app.get('/student/:userId', (req, res) => {
@@ -603,7 +612,7 @@ app.get('/student/:userId', (req, res) => {
 
 const otpStore = {} // temp store
 
-app.post('/send-otp', async (req, res) => {
+app.post('/send-otp', (req, res) => {
   const { email } = req.body
 
   if (!email) {
@@ -628,16 +637,26 @@ app.post('/send-otp', async (req, res) => {
   })
 
   // Send email in background
-  await sendMail({
-    to: email,
-    subject: 'OTP Verification',
-    html: `
-    <h2>UOL Transportation App</h2>
-    <p>Your OTP for changing password is:</p>
-    <h1>${otp}</h1>
-    <p>This OTP will expire in 5 minutes.</p>
-  `
-  })
+  transporter.sendMail(
+    {
+      from: 'haseeb.ahmed20035@gmail.com',
+      to: email,
+      subject: 'OTP Verification',
+      html: `
+        <h2>UOL Transportation App</h2>
+        <p>Your OTP for changing password is:</p>
+        <h1>${otp}</h1>
+        <p>This OTP will expire in 5 minutes.</p>
+      `
+    },
+    err => {
+      if (err) {
+        console.log('OTP MAIL ERROR:', err)
+      } else {
+        console.log('OTP MAIL SENT SUCCESSFULLY TO:', email)
+      }
+    }
+  )
 })
 
 app.post('/change-password', async (req, res) => {
@@ -1339,23 +1358,33 @@ app.post('/add-driver', (req, res) => {
     }
 
     const insertQuery = `
-      INSERT INTO drivers (
+        INSERT INTO drivers (
+          name,
+          email,
+          father_name,
+          phone,
+          cnic,
+          joining_date,
+          password,
+          role,
+          is_available
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+
+    db.query(
+      insertQuery,
+      [
         name,
         email,
         father_name,
         phone,
         cnic,
         joining_date,
-        password,
-        role,
-        is_available
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-
-    db.query(
-      insertQuery,
-      [name, email, father_name, phone, cnic, joining_date, tempPass, 'driver', 1],
+        tempPass,
+        'driver',
+        1
+      ],
       (err, result) => {
         if (err) {
           return res.status(500).json({
@@ -1364,30 +1393,53 @@ app.post('/add-driver', (req, res) => {
           })
         }
 
-        res.status(200).json({
+        // SEND EMAIL
+        transporter.sendMail(
+          {
+            from: 'haseeb.ahmed20035@gmail.com',
+
+            to: email,
+
+            subject: 'Driver Account Created 🚍',
+
+            html: `
+                <h2>🚍 UOL Transportation System</h2>
+
+                <p>Hello <b>${name}</b>,</p>
+
+                <p>
+                  You have been assigned as a driver in UOL Transportation System.
+                </p>
+
+                <h3>Login Credentials</h3>
+
+                <p><b>Email:</b> ${email}</p>
+
+                <p><b>Password:</b> ${tempPass}</p>
+
+                <p><b>Role:</b> driver</p>
+
+                <p>
+                  Please login using these credentials.
+                </p>
+                <p>You can change password from "My Personal Info"</p>
+
+              `
+          },
+
+          mailErr => {
+            if (mailErr) {
+              console.log('MAIL ERROR:', mailErr)
+            } else {
+              console.log('DRIVER MAIL SENT')
+            }
+          }
+        )
+
+        return res.status(200).json({
           success: true,
           message: 'Driver added successfully',
           driver_id: result.insertId
-        })
-
-        setImmediate(async () => {
-          await sendMail({
-            to: email,
-            subject: 'Driver Account Created 🚍',
-            html: `
-              <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                <h2>🚍 UOL Transportation System</h2>
-                <p>Hello <b>${name}</b>,</p>
-                <p>You have been assigned as a driver in UOL Transportation System.</p>
-                <h3>Login Credentials</h3>
-                <p><b>Email:</b> ${email}</p>
-                <p><b>Password:</b> ${tempPass}</p>
-                <p><b>Role:</b> driver</p>
-                <p>Please login using these credentials.</p>
-                <p>You can change your password from "My Personal Info".</p>
-              </div>
-            `
-          })
         })
       }
     )
@@ -1645,7 +1697,7 @@ app.get('/driver/current-ride/:driverId', (req, res) => {
 
       return res.status(500).json({
         success: false,
-        message: err.message
+        message: err.message,
       })
     }
 
@@ -1653,7 +1705,7 @@ app.get('/driver/current-ride/:driverId', (req, res) => {
       return res.json({
         success: false,
         message: 'No running ride found',
-        ride: null
+        ride: null,
       })
     }
 
@@ -1677,7 +1729,7 @@ app.get('/driver/current-ride/:driverId', (req, res) => {
 
         return res.status(500).json({
           success: false,
-          message: stopErr.message
+          message: stopErr.message,
         })
       }
 
@@ -1704,8 +1756,8 @@ app.get('/driver/current-ride/:driverId', (req, res) => {
           estimated_time: ride.estimated_time,
 
           updated_at: ride.updated_at,
-          stops: Array.isArray(stops) ? stops : []
-        }
+          stops: Array.isArray(stops) ? stops : [],
+        },
       })
     })
   })
@@ -2684,9 +2736,28 @@ const formatDate = value => {
 const APP_PUBLIC_URL =
   process.env.APP_PUBLIC_URL || `http://localhost:${process.env.PORT || 5000}`
 
-const sendMailSafe = async ({ to, subject, html }) => {
-  if (!to) return false
-  return await sendMail({ to, subject, html })
+const sendMailSafe = ({ to, subject, html }) => {
+  return new Promise(resolve => {
+    if (!to) return resolve(false)
+
+    transporter.sendMail(
+      {
+        from: 'haseeb.ahmed20035@gmail.com',
+        to,
+        subject,
+        html
+      },
+      err => {
+        if (err) {
+          console.log('FEE MAIL ERROR:', err.message)
+          return resolve(false)
+        }
+
+        console.log('FEE MAIL SENT TO:', to)
+        resolve(true)
+      }
+    )
+  })
 }
 
 const getFeeVoucherEmailHtml = ({
@@ -4092,7 +4163,7 @@ app.get('/reverse-geocode', async (req, res) => {
   if (!lat || !lon) {
     return res.status(400).json({
       success: false,
-      message: 'Latitude and longitude are required'
+      message: 'Latitude and longitude are required',
     })
   }
 
@@ -4111,8 +4182,8 @@ app.get('/reverse-geocode', async (req, res) => {
       headers: {
         'User-Agent':
           'UOL-Transportation-App/1.0 (haseeb.ahmed20035@gmail.com)',
-        Accept: 'application/json'
-      }
+        Accept: 'application/json',
+      },
     })
 
     return await response.json()
@@ -4165,7 +4236,7 @@ app.get('/reverse-geocode', async (req, res) => {
         'Punjab',
         'Lahore Division',
         'Lahore District',
-        'Lahore City Tehsil'
+        'Lahore City Tehsil',
       ]
 
       const usefulParts = parts.filter(part => !badParts.includes(part))
@@ -4252,7 +4323,7 @@ app.get('/reverse-geocode', async (req, res) => {
 
     if (!finalName) {
       finalName = `Stop near ${Number(lat).toFixed(5)}, ${Number(lon).toFixed(
-        5
+        5,
       )}`
     }
 
@@ -4260,7 +4331,7 @@ app.get('/reverse-geocode', async (req, res) => {
       success: true,
       stop_name: finalName,
       address: finalData?.address || {},
-      display_name: finalData?.display_name || null
+      display_name: finalData?.display_name || null,
     })
   } catch (error) {
     console.log('REVERSE GEOCODE ERROR:', error)
@@ -4269,8 +4340,8 @@ app.get('/reverse-geocode', async (req, res) => {
       success: false,
       message: 'Failed to fetch address',
       stop_name: `Stop near ${Number(lat).toFixed(5)}, ${Number(lon).toFixed(
-        5
-      )}`
+        5,
+      )}`,
     })
   }
 })
