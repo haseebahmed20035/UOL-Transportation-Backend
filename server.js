@@ -4315,6 +4315,15 @@ app.get('/reverse-geocode', async (req, res) => {
     })
   }
 })
+const normalizeChatbotRole = role => {
+  const value = String(role || '').toLowerCase()
+
+  if (value.includes('admin')) return 'admin'
+  if (value.includes('driver')) return 'driver'
+
+  return 'student'
+}
+
 const createComplaintFromChatbot = async ({
   userId,
   role,
@@ -4323,30 +4332,38 @@ const createComplaintFromChatbot = async ({
   description,
 }) => {
   return new Promise((resolve, reject) => {
-    if (role !== 'student') {
-      reject(new Error('Only students can register complaints through chatbot'));
-      return;
+    const normalizedRole = normalizeChatbotRole(role)
+
+    if (normalizedRole !== 'student') {
+      reject(new Error('Only students can register complaints through chatbot'))
+      return
+    }
+
+    if (!userId) {
+      reject(new Error('User id is required to register complaint'))
+      return
     }
 
     const findStudentSql = `
       SELECT id
       FROM students
       WHERE user_id = ?
+      OR id = ?
       LIMIT 1
-    `;
+    `
 
-    db.query(findStudentSql, [userId], (studentErr, students) => {
+    db.query(findStudentSql, [userId, userId], (studentErr, students) => {
       if (studentErr) {
-        reject(studentErr);
-        return;
+        reject(studentErr)
+        return
       }
 
       if (!students || students.length === 0) {
-        reject(new Error('Student profile not found for this user'));
-        return;
+        reject(new Error('Student profile not found for this user'))
+        return
       }
 
-      const studentId = students[0].id;
+      const studentId = students[0].id
 
       const insertComplaintSql = `
         INSERT INTO complaints
@@ -4357,52 +4374,57 @@ const createComplaintFromChatbot = async ({
           description
         )
         VALUES (?, ?, ?, ?)
-      `;
+      `
 
       db.query(
         insertComplaintSql,
         [studentId, title, category, description],
         (insertErr, result) => {
           if (insertErr) {
-            reject(insertErr);
-            return;
+            reject(insertErr)
+            return
           }
 
-          resolve(result);
+          resolve(result)
         },
-      );
-    });
-  });
-};
+      )
+    })
+  })
+}
+
 // ================= CHAT BOT =================
 app.post('/chatbot/ask', async (req, res) => {
   try {
-    const { message, role, userId } = req.body;
+    const { message, role, userId } = req.body
 
     if (!message || !String(message).trim()) {
       return res.status(400).json({
         success: false,
         reply: 'Please type your question first.',
-      });
+        actionKey: null,
+        actionLabel: null,
+        suggestions: ['Help', 'Track my bus', 'Fee voucher'],
+      })
     }
+
+    const normalizedRole = normalizeChatbotRole(role)
 
     const botResult = buildChatbotResponse({
       message,
-      role,
-    });
+      role: normalizedRole,
+    })
 
-    const normalizedRole = String(role || 'student').toLowerCase();
-
-    // ✅ Complaint action only when chatbot detects complaint request
     if (botResult.type === 'create_complaint') {
       if (normalizedRole !== 'student') {
         return res.status(403).json({
           success: false,
           reply:
             'Complaint registration through chatbot is currently available for students only.',
-          action: null,
-          suggestions: ['Track my bus', 'Notifications', 'Route details'],
-        });
+          actionKey: null,
+          actionLabel: null,
+          intent: 'complaint_not_allowed',
+          suggestions: ['Notifications', 'Route details', 'Help'],
+        })
       }
 
       if (!userId) {
@@ -4410,9 +4432,11 @@ app.post('/chatbot/ask', async (req, res) => {
           success: false,
           reply:
             'Complaint register karne ke liye user login information required hai. Please logout karke dobara login karein.',
-          action: null,
+          actionKey: null,
+          actionLabel: null,
+          intent: 'missing_user_id',
           suggestions: ['Login again', 'Open complaints'],
-        });
+        })
       }
 
       const complaintResult = await createComplaintFromChatbot({
@@ -4421,12 +4445,18 @@ app.post('/chatbot/ask', async (req, res) => {
         title: botResult.complaint.title,
         category: botResult.complaint.category,
         description: botResult.complaint.description,
-      });
+      })
 
       return res.json({
         success: true,
-        reply: `Your complaint has been registered successfully.\n\nComplaint ID: #${complaintResult.insertId}\nType: ${botResult.complaint.category}\nStatus: Pending\n\nAdmin will review your issue soon.`,
-        action: 'Complaints',
+        reply:
+          `Your complaint has been registered successfully.\n\n` +
+          `Complaint ID: #${complaintResult.insertId}\n` +
+          `Type: ${botResult.complaint.category}\n` +
+          `Status: Pending\n\n` +
+          `Admin will review your issue soon.`,
+        actionKey: 'OPEN_STUDENT_COMPLAINT',
+        actionLabel: 'Open Complaint Screen',
         intent: 'complaint_created',
         complaintCreated: true,
         complaintId: complaintResult.insertId,
@@ -4436,34 +4466,37 @@ app.post('/chatbot/ask', async (req, res) => {
           'Fee voucher',
           'Notifications',
         ],
-      });
+      })
     }
 
-    // ✅ Normal chatbot reply
     return res.json({
       success: true,
       reply: botResult.reply,
-      action: botResult.action,
-      intent: botResult.intent,
-      suggestions: botResult.suggestions,
-    });
+      actionKey: botResult.actionKey || null,
+      actionLabel: botResult.actionLabel || null,
+      intent: botResult.intent || null,
+      suggestions: botResult.suggestions || [],
+    })
   } catch (error) {
-    console.log('CHATBOT ERROR:', error);
+    console.log('CHATBOT ERROR:', error)
 
     return res.status(500).json({
       success: false,
       reply:
+        error?.message ||
         'Sorry, chatbot could not process your request right now. Please try again.',
-      action: null,
+      actionKey: null,
+      actionLabel: null,
+      intent: 'server_error',
       suggestions: [
         'Track my bus',
         'Register complaint',
         'Fee voucher',
         'Notifications',
       ],
-    });
+    })
   }
-});
+})
 // ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
