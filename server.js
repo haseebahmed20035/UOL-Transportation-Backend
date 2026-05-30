@@ -4314,7 +4314,117 @@ app.get('/reverse-geocode', async (req, res) => {
     })
   }
 })
+// ================= CHAT BOT =================
+app.post('/chatbot/ask', async (req, res) => {
+  try {
+    const { message, role, userId } = req.body;
 
+    if (!message || message.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        reply: 'Please type your question first.',
+      });
+    }
+
+    const text = message.toLowerCase();
+
+    let reply = '';
+    let action = null;
+
+    if (
+      text.includes('bus') ||
+      text.includes('tracking') ||
+      text.includes('location') ||
+      text.includes('live')
+    ) {
+      reply =
+        'You can track your assigned bus from the Live Bus Tracking screen. It shows the current bus location, route stops, ETA, and distance from your stop.';
+      action = 'LiveBusTracking';
+    } else if (
+      text.includes('fee') ||
+      text.includes('voucher') ||
+      text.includes('payment')
+    ) {
+      reply =
+        'You can view your fee voucher from the Fee Voucher section. Students can check voucher details, tax, total amount, and download the voucher PDF.';
+      action = 'StudentVoucher';
+    } else if (
+      text.includes('complaint') ||
+      text.includes('issue') ||
+      text.includes('problem')
+    ) {
+      reply =
+        'You can submit a transport complaint from the Complaints section. Admin will review your complaint and update its status.';
+      action = 'Complaints';
+    } else if (
+      text.includes('notification') ||
+      text.includes('alert') ||
+      text.includes('message')
+    ) {
+      reply =
+        'Notifications are used for transport alerts, admin announcements, fee updates, bus arrival alerts, and delay messages.';
+      action = 'StudentNotification';
+    } else if (
+      text.includes('route') ||
+      text.includes('stop') ||
+      text.includes('stops')
+    ) {
+      reply =
+        'Routes contain source, destination, estimated time, and all assigned stops. Students are assigned to a route and stop by the admin.';
+      action = 'Routes';
+    } else if (
+      text.includes('driver') ||
+      text.includes('ride') ||
+      text.includes('start trip') ||
+      text.includes('end trip')
+    ) {
+      reply =
+        'Drivers can start and end rides from the Trip Control screen. Live location is shared only when the ride status is running or live.';
+      action = role === 'driver' ? 'TripControl' : null;
+    } else if (
+      text.includes('admin') ||
+      text.includes('dashboard')
+    ) {
+      reply =
+        'Admin can manage students, drivers, buses, routes, complaints, fee vouchers, and notifications from the Admin Dashboard.';
+    } else if (
+      text.includes('hello') ||
+      text.includes('hi') ||
+      text.includes('salam') ||
+      text.includes('assalam')
+    ) {
+      reply =
+        'Assalamualaikum! I am your UOL Transportation Assistant. You can ask me about bus tracking, routes, fees, complaints, notifications, or driver ride status.';
+    } else if (
+      text.includes('help') ||
+      text.includes('what can you do')
+    ) {
+      reply =
+        'I can help you with UOL Transportation System features like live bus tracking, fee vouchers, complaints, notifications, routes, driver rides, and admin modules.';
+    } else {
+      reply =
+        'Sorry, I did not fully understand that. You can ask me about bus tracking, route stops, fee voucher, complaints, notifications, or driver ride status.';
+    }
+
+    return res.json({
+      success: true,
+      reply,
+      action,
+      suggestions: [
+        'Track my bus',
+        'How to check fee voucher?',
+        'How to submit complaint?',
+        'Show route details',
+      ],
+    });
+  } catch (error) {
+    console.log('CHATBOT ERROR:', error);
+    return res.status(500).json({
+      success: false,
+      reply: 'Chatbot is currently unavailable. Please try again.',
+    });
+  }
+});
 // ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`)
