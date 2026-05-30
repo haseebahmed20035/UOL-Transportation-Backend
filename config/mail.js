@@ -1,31 +1,44 @@
-const SibApiV3Sdk = require('@getbrevo/brevo')
 require('dotenv').config()
 
-let defaultClient = SibApiV3Sdk.ApiClient.instance
-let apiKey = defaultClient.authentications['api-key']
-apiKey.apiKey = process.env.BREVO_API_KEY
-
-let apiInstance = new SibApiV3Sdk.TransactionalEmailsApi()
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email'
 
 const sendMail = async ({ to, subject, html }) => {
   try {
-    let sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail()
-
-    sendSmtpEmail.sender = {
-      name: 'UOL Transport',
-      email: 'haseeb.ahmed20035@gmail.com'
+    if (!process.env.BREVO_API_KEY) {
+      console.log('BREVO_API_KEY is missing in Railway variables')
+      return false
     }
 
-    sendSmtpEmail.to = [{ email: to }]
-    sendSmtpEmail.subject = subject
-    sendSmtpEmail.htmlContent = html
+    const response = await fetch(BREVO_API_URL, {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: {
+          name: process.env.BREVO_SENDER_NAME || 'UOL Transport',
+          email:
+            process.env.BREVO_SENDER_EMAIL || 'haseeb.ahmed20035@gmail.com',
+        },
+        to: [{ email: to }],
+        subject,
+        htmlContent: html,
+      }),
+    })
 
-    await apiInstance.sendTransacEmail(sendSmtpEmail)
+    const data = await response.json().catch(() => null)
 
-    console.log('MAIL SENT TO:', to)
+    if (!response.ok) {
+      console.log('BREVO MAIL ERROR:', data || response.statusText)
+      return false
+    }
+
+    console.log('MAIL SENT TO:', to, data)
     return true
   } catch (err) {
-    console.log('MAIL ERROR:', err?.response?.body || err.message)
+    console.log('MAIL ERROR:', err.message)
     return false
   }
 }
