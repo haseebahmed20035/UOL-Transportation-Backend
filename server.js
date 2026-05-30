@@ -542,37 +542,33 @@ app.post('/add-student', (req, res) => {
             })
 
             // ✅ Send email in background, do not block app
-            setImmediate(() => {
-              transporter.sendMail(
-                {
-                  from: process.env.MAIL_USER || 'haseeb.ahmed20035@gmail.com',
-                  to: cleanEmail,
-                  subject: 'UOL Transport Account Created 🚍',
-                  html: `
-                    <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-                      <h2>🚍 UOL Transport System</h2>
-                      <p>Hello <b>${name}</b>,</p>
+            setImmediate(async () => {
+              const sent = await sendMail({
+                to: cleanEmail,
+                subject: 'UOL Transport Account Created 🚍',
+                html: `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+        <h2>🚍 UOL Transportation System</h2>
+        <p>Hello <b>${name}</b>,</p>
 
-                      <p>Your student account has been created successfully.</p>
+        <p>Your student account has been created successfully.</p>
 
-                      <h3>Login Credentials</h3>
-                      <p><b>Email:</b> ${cleanEmail}</p>
-                      <p><b>Password:</b> ${tempPass}</p>
-                      <p><b>Registration No:</b> ${reg_no}</p>
-                      <p><b>Role:</b> student</p>
+        <h3>Login Credentials</h3>
+        <p><b>Email:</b> ${cleanEmail}</p>
+        <p><b>Password:</b> ${tempPass}</p>
+        <p><b>Registration No:</b> ${reg_no}</p>
+        <p><b>Role:</b> student</p>
 
-                      <p>You can change your password from "My Personal Info".</p>
-                    </div>
-                  `,
-                },
-                mailErr => {
-                  if (mailErr) {
-                    console.log('STUDENT MAIL ERROR:', mailErr.message)
-                  } else {
-                    console.log('STUDENT MAIL SENT SUCCESS TO:', cleanEmail)
-                  }
-                }
-              )
+        <p>You can change your password from "My Personal Info".</p>
+      </div>
+    `,
+              })
+
+              if (sent) {
+                console.log('STUDENT MAIL SENT SUCCESS TO:', cleanEmail)
+              } else {
+                console.log('STUDENT MAIL FAILED:', cleanEmail)
+              }
             })
           }
         )
@@ -637,26 +633,24 @@ app.post('/send-otp', (req, res) => {
   })
 
   // Send email in background
-  transporter.sendMail(
-    {
-      from: 'haseeb.ahmed20035@gmail.com',
-      to: email,
-      subject: 'OTP Verification',
-      html: `
-        <h2>UOL Transportation App</h2>
-        <p>Your OTP for changing password is:</p>
-        <h1>${otp}</h1>
-        <p>This OTP will expire in 5 minutes.</p>
-      `
-    },
-    err => {
-      if (err) {
-        console.log('OTP MAIL ERROR:', err)
-      } else {
-        console.log('OTP MAIL SENT SUCCESSFULLY TO:', email)
-      }
-    }
-  )
+  setImmediate(async () => {
+  const sent = await sendMail({
+    to: email,
+    subject: 'OTP Verification',
+    html: `
+      <h2>UOL Transportation App</h2>
+      <p>Your OTP for changing password is:</p>
+      <h1>${otp}</h1>
+      <p>This OTP will expire in 5 minutes.</p>
+    `,
+  })
+
+  if (sent) {
+    console.log('OTP MAIL SENT SUCCESSFULLY TO:', email)
+  } else {
+    console.log('OTP MAIL FAILED:', email)
+  }
+})
 })
 
 app.post('/change-password', async (req, res) => {
@@ -1394,47 +1388,34 @@ app.post('/add-driver', (req, res) => {
         }
 
         // SEND EMAIL
-        transporter.sendMail(
-          {
-            from: 'haseeb.ahmed20035@gmail.com',
+        setImmediate(async () => {
+  const sent = await sendMail({
+    to: email,
+    subject: 'Driver Account Created 🚍',
+    html: `
+      <h2>🚍 UOL Transportation System</h2>
 
-            to: email,
+      <p>Hello <b>${name}</b>,</p>
 
-            subject: 'Driver Account Created 🚍',
+      <p>You have been assigned as a driver in UOL Transportation System.</p>
 
-            html: `
-                <h2>🚍 UOL Transportation System</h2>
+      <h3>Login Credentials</h3>
 
-                <p>Hello <b>${name}</b>,</p>
+      <p><b>Email:</b> ${email}</p>
+      <p><b>Password:</b> ${tempPass}</p>
+      <p><b>Role:</b> driver</p>
 
-                <p>
-                  You have been assigned as a driver in UOL Transportation System.
-                </p>
+      <p>Please login using these credentials.</p>
+      <p>You can change password from "My Personal Info"</p>
+    `,
+  })
 
-                <h3>Login Credentials</h3>
-
-                <p><b>Email:</b> ${email}</p>
-
-                <p><b>Password:</b> ${tempPass}</p>
-
-                <p><b>Role:</b> driver</p>
-
-                <p>
-                  Please login using these credentials.
-                </p>
-                <p>You can change password from "My Personal Info"</p>
-
-              `
-          },
-
-          mailErr => {
-            if (mailErr) {
-              console.log('MAIL ERROR:', mailErr)
-            } else {
-              console.log('DRIVER MAIL SENT')
-            }
-          }
-        )
+  if (sent) {
+    console.log('DRIVER MAIL SENT TO:', email)
+  } else {
+    console.log('DRIVER MAIL FAILED:', email)
+  }
+})
 
         return res.status(200).json({
           success: true,
@@ -2063,9 +2044,9 @@ const getDistanceInMeters = (lat1, lon1, lat2, lon2) => {
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2)
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2)
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 
@@ -2736,28 +2717,22 @@ const formatDate = value => {
 const APP_PUBLIC_URL =
   process.env.APP_PUBLIC_URL || `http://localhost:${process.env.PORT || 5000}`
 
-const sendMailSafe = ({ to, subject, html }) => {
-  return new Promise(resolve => {
-    if (!to) return resolve(false)
+const sendMailSafe = async ({ to, subject, html }) => {
+  if (!to) return false
 
-    transporter.sendMail(
-      {
-        from: 'haseeb.ahmed20035@gmail.com',
-        to,
-        subject,
-        html
-      },
-      err => {
-        if (err) {
-          console.log('FEE MAIL ERROR:', err.message)
-          return resolve(false)
-        }
-
-        console.log('FEE MAIL SENT TO:', to)
-        resolve(true)
-      }
-    )
+  const sent = await sendMail({
+    to,
+    subject,
+    html,
   })
+
+  if (sent) {
+    console.log('FEE MAIL SENT TO:', to)
+  } else {
+    console.log('FEE MAIL FAILED:', to)
+  }
+
+  return sent
 }
 
 const getFeeVoucherEmailHtml = ({
